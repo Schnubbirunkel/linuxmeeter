@@ -3,10 +3,15 @@
  * In a browser (no Tauri runtime) or with VITE_MOCK=1 the mock backend is
  * used, so `pnpm dev` gives a fully animated console for design iteration.
  */
-import type { AppState, BusId, CompParams, EqParams, GateParams, LimiterParams, MeterFrame } from "./types";
+import type { AppState, BusId, StripKind, CompParams, EqParams, GateParams, LimiterParams, MeterFrame } from "./types";
 import { mockIpc } from "./mock";
 
 export type Target = { strip: number } | { bus: BusId };
+
+export interface ShortcutInfo {
+  available: boolean;
+  bindings: Record<string, string>;
+}
 
 export interface Ipc {
   getState(): Promise<AppState>;
@@ -30,6 +35,17 @@ export interface Ipc {
   setNotifications(on: boolean): Promise<void>;
   /** Absolute path of the app binary, for `<exe> ctl …` shortcut commands. */
   getExePath(): Promise<string>;
+  addStrip(kind: StripKind): Promise<void>;
+  removeStrip(stripId: number): Promise<void>;
+  /** Adds the first free A bus (hardware) or B bus (virtual mic). */
+  addBus(hardware: boolean): Promise<void>;
+  removeBus(bus: BusId): Promise<void>;
+  /** In-app global shortcuts (KDE). `available` is false outside Plasma. */
+  getShortcuts(): Promise<ShortcutInfo>;
+  /** Bind keys ("Ctrl+Alt+M", null = remove) to a ctl action; resolves to the stored keys. */
+  setShortcut(action: string, name: string, keys: string | null): Promise<string | null>;
+  /** Bindings changed outside the app (System Settings). */
+  onShortcutsChanged(cb: () => void): () => void;
   getAutostart(): Promise<boolean>;
   setAutostart(on: boolean): Promise<void>;
   /** Subscribe to meter frames; returns unsubscribe. */
@@ -68,6 +84,16 @@ function tauriIpc(): Ipc {
     getNotifications: () => invoke("get_notifications"),
     setNotifications: (on) => invoke("set_notifications", { on }),
     getExePath: () => invoke("get_exe_path"),
+    addStrip: (kind) => invoke("add_strip", { kind }),
+    removeStrip: (stripId) => invoke("remove_strip", { stripId }),
+    addBus: (hardware) => invoke("add_bus", { hardware }),
+    removeBus: (bus) => invoke("remove_bus", { bus }),
+    getShortcuts: () => invoke("get_shortcuts"),
+    setShortcut: (action, name, keys) => invoke("set_shortcut", { action, name, keys }),
+    onShortcutsChanged: (cb) => {
+      const un = event.then((e) => e.listen("shortcuts_changed", () => cb()));
+      return () => void un.then((f) => f());
+    },
     getAutostart: () => invoke("get_autostart"),
     setAutostart: (on) => invoke("set_autostart", { on }),
     onMeters: (cb) => {

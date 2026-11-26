@@ -17,9 +17,36 @@
     onrename?: (label: string) => void;
     /** Extra tooltip line for the name (e.g. the id for shortcuts). */
     nameTitle?: string;
+    /** Shows an × that removes the strip (second click confirms). */
+    onremove?: () => void;
+    removeTitle?: string;
   }
-  let { label, busBadge, deviceValue, deviceDisplay, deviceOptions, ondevicechange, deviceDisabled, onrename, nameTitle }: Props =
-    $props();
+  let {
+    label,
+    busBadge,
+    deviceValue,
+    deviceDisplay,
+    deviceOptions,
+    ondevicechange,
+    deviceDisabled,
+    onrename,
+    nameTitle,
+    onremove,
+    removeTitle = "Remove",
+  }: Props = $props();
+
+  let armed = $state(false);
+  let disarm: ReturnType<typeof setTimeout> | undefined;
+  function remove() {
+    if (armed) {
+      clearTimeout(disarm);
+      armed = false;
+      onremove?.();
+      return;
+    }
+    armed = true;
+    disarm = setTimeout(() => (armed = false), 2500);
+  }
 
   let editing = $state(false);
   let draft = $state("");
@@ -73,6 +100,11 @@
         {label}
       </div>
     {/if}
+    {#if onremove && !editing}
+      <button class="rm" class:armed title={armed ? "Click again to remove" : removeTitle} onclick={remove}>
+        {#if armed}remove?{:else}<svg width="8" height="8" viewBox="0 0 12 12"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" stroke-width="1.6" /></svg>{/if}
+      </button>
+    {/if}
   </div>
   <DeviceSelect
     value={deviceValue}
@@ -107,6 +139,35 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .nrow .name {
+    flex: 1;
+    min-width: 0;
+  }
+  .rm {
+    flex: none;
+    align-self: center;
+    height: 14px;
+    min-width: 14px;
+    padding: 0 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-3);
+    border-radius: 2px;
+    opacity: 0;
+    font: 500 9px var(--mono);
+  }
+  .head:hover .rm,
+  .rm.armed {
+    opacity: 1;
+  }
+  .rm:hover {
+    color: var(--text-1);
+  }
+  .rm.armed {
+    background: var(--mute);
+    color: #fff;
   }
   .name.renamable {
     cursor: text;

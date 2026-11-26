@@ -29,6 +29,9 @@ use crate::meter::MeterTap;
 use crate::params;
 use crate::registry::{parse, GraphModel};
 
+/// Most input strips a mixer can have (each is a filter-chain with three LV2 plugins).
+pub const MAX_STRIPS: usize = 16;
+
 pub struct EngineHandle {
     pub cmd_tx: pipewire::channel::Sender<EngineCommand>,
     pub evt_rx: mpsc::Receiver<EngineEvent>,
@@ -498,6 +501,182 @@ impl Engine {
         }
     }
 
+    // ---- adding and removing strips/buses ------------------------------------
+
+    fn strip_tap(&self, id: StripId) -> Option<MeterTap> {
+        MeterTap::new(self.core.clone(), &format!("s{id}")).map_err(|e| tracing::warn!("strip tap failed: {e}")).ok()
+    }
+
+    fn bus_tap(&self, id: BusId) -> Option<MeterTap> {
+        MeterTap::new(self.core.clone(), &format!("b{id:?}").to_lowercase())
+            .map_err(|e| tracing::warn!("bus tap failed: {e}"))
+            .ok()
+    }
+
+    /// `base` alone if no strip/bus uses it yet, else `base 2`, `base 3`, ...
+    fn unique_label(&self, base: &str) -> String {
+        let taken = |l: &str| {
+            self.app.strips.iter().any(|s| s.label.eq_ignore_ascii_case(l))
+                || self.app.buses.iter().any(|b| b.label.eq_ignore_ascii_case(l))
+        };
+        if !taken(base) {
+            return base.to_string();
+        }
+        (2..).map(|n| format!("{base} {n}")).find(|l| !taken(l)).expect("unbounded")
+    }
+
+    fn add_strip(&mut self, kind: StripKind, hw_key: Option<String>) {
+        if self.app.strips.len() >= MAX_STRIPS {
+            return;
+        }
+        let hw_key = match kind {
+            StripKind::Virtual => None,
+            StripKind::Hardware => {
+                // Prefer an input no strip captures yet, then the default mic.
+                let used: HashSet<&str> = self.app.strips.iter().filter_map(|s| s.hw_key.as_deref()).collect();
+                let pick = hw_key.or_else(|| {
+                    let mut inputs: Vec<&str> = self
+                        .model
+                        .nodes
+                        .values()
+                        .filter(|n| n.media_class == "Audio/Source" && (n.name.starts_with("alsa_") || n.name.starts_with("bluez_")))
+                        .map(|n| n.name.as_str())
+                        .collect();
+                    inputs.sort_unstable();
+                    inputs.into_iter().find(|n| !used.contains(n)).map(String::from).or_else(|| self.default_source.clone())
+                });
+                let Some(pick) = pick else {
+                    tracing::warn!("no audio input to capture; hardware strip not added");
+                    return;
+                };
+                Some(pick)
+            }
+        };
+        let id = self.app.strips.iter().map(|s| s.id).max().unwrap_or(0) + 1;
+        let label = self.unique_label(match kind {
+            StripKind::Hardware => "Mic",
+            StripKind::Virtual => "Virtual",
+        });
+        // New hardware inputs start unrouted (a mic must never reach the
+        // speakers by surprise); virtual inputs play to the first A bus.
+        let first_a = self.app.buses.iter().find(|b| b.id.is_hardware()).map(|b| b.id);
+        let on: Vec<BusId> = match kind {
+            StripKind::Virtual => first_a.into_iter().collect(),
+            StripKind::Hardware => vec![],
+        };
+        let online = match &hw_key {
+            Some(k) => self.model.node_by_name(k).is_some(),
+            None => true,
+        };
+        let strip = StripState {
+            id,
+            kind,
+            label,
+            hw_key,
+            online,
+            gain_db: 0.0,
+            mute: false,
+            solo: false,
+            routes: routes(&on),
+            gate: GateParams::default(),
+            comp: CompParams::default(),
+            eq: EqParams::default(),
+        };
+        // Hardware strips are listed before virtual ones (as in the window),
+        // and the meter taps follow the same order as `app.strips`.
+        let at = match kind {
+            StripKind::Hardware => self.app.strips.iter().rposition(|s| s.kind == StripKind::Hardware).map_or(0, |i| i + 1),
+            StripKind::Virtual => self.app.strips.len(),
+        };
+        self.load_strip_module(&strip);
+        for b in &self.app.buses {
+            if on.contains(&b.id) {
+                self.links.set_route(&strip.out_node(), &b.in_node(), true);
+            }
+        }
+        let Some(tap) = self.strip_tap(id) else { return };
+        self.links.set_route(&strip.out_node(), &tap.node_name.clone(), true);
+        self.strip_taps.insert(at, tap);
+        self.app.strips.insert(at, strip);
+        self.reconcile();
+        self.send_state();
+        self.save_now();
+    }
+
+    fn remove_strip(&mut self, id: StripId) {
+        let Some(at) = self.app.strips.iter().position(|s| s.id == id) else { return };
+        let strip = self.app.strips.remove(at);
+        for b in &self.app.buses {
+            self.links.set_route(&strip.out_node(), &b.in_node(), false);
+        }
+        let tap = self.strip_taps.remove(at);
+        self.links.set_route(&strip.out_node(), &tap.node_name, false);
+        drop(tap);
+        self.nodes.remove(&strip.control_node());
+        self.wanted_controls.remove(&strip.control_node());
+        self.strip_modules.remove(&id); // unloads the module
+        self.reconcile();
+        if self.app.take_default_output && strip.kind == StripKind::Virtual {
+            // The default output was (possibly) this strip: move it to the
+            // next virtual strip, or hand it back to the hardware device.
+            let any_virtual = self.app.strips.iter().any(|s| s.kind == StripKind::Virtual);
+            self.apply_default_output(any_virtual);
+        }
+        self.apply_strip_mutes(); // a removed solo must not keep others muted
+        self.send_state();
+        self.save_now();
+    }
+
+    fn add_bus(&mut self, hardware: bool) {
+        let Some(id) = BusId::ALL
+            .into_iter()
+            .find(|id| id.is_hardware() == hardware && !self.app.buses.iter().any(|b| b.id == *id))
+        else {
+            return;
+        };
+        let target = if hardware {
+            let Some(sink) = self.default_sink.clone().or_else(|| self.first_node("Audio/Sink")) else {
+                tracing::warn!("no audio output to play to; bus not added");
+                return;
+            };
+            Some(sink)
+        } else {
+            None
+        };
+        let label = self.unique_label(if hardware { "Speakers" } else { "Virtual Mic" });
+        let b = bus(id, &label, target);
+        let at = self.app.buses.iter().position(|x| x.id > id).unwrap_or(self.app.buses.len());
+        self.load_bus_module(&b);
+        let Some(tap) = self.bus_tap(id) else { return };
+        self.links.set_route(&b.tap_node(), &tap.node_name.clone(), true);
+        self.bus_taps.insert(at, tap);
+        for s in &mut self.app.strips {
+            s.routes.entry(id).or_insert(false);
+        }
+        self.app.buses.insert(at, b);
+        self.reconcile();
+        self.send_state();
+        self.save_now();
+    }
+
+    fn remove_bus(&mut self, id: BusId) {
+        let Some(at) = self.app.buses.iter().position(|b| b.id == id) else { return };
+        let b = self.app.buses.remove(at);
+        for s in &mut self.app.strips {
+            s.routes.insert(id, false);
+            self.links.set_route(&s.out_node(), &b.in_node(), false);
+        }
+        let tap = self.bus_taps.remove(at);
+        self.links.set_route(&b.tap_node(), &tap.node_name, false);
+        drop(tap);
+        self.nodes.remove(&b.in_node());
+        self.wanted_controls.remove(&b.in_node());
+        self.bus_modules.remove(&id);
+        self.reconcile();
+        self.send_state();
+        self.save_now();
+    }
+
     fn first_node(&self, class: &str) -> Option<String> {
         self.model
             .nodes
@@ -853,6 +1032,17 @@ impl Engine {
                 let next = (cur + step as i64).rem_euclid(names.len() as i64) as usize;
                 let name = names[next].clone();
                 self.switch_profile(&name);
+            }
+            EngineCommand::AddStrip { kind, hw_key } => self.add_strip(kind, hw_key),
+            EngineCommand::RemoveStrip { strip } => self.remove_strip(strip),
+            EngineCommand::AddBus { hardware } => self.add_bus(hardware),
+            EngineCommand::RemoveBus { bus } => self.remove_bus(bus),
+            EngineCommand::SetMicsMute { mute } => {
+                for s in self.app.strips.iter_mut().filter(|s| s.kind == StripKind::Hardware) {
+                    s.mute = mute;
+                }
+                self.apply_strip_mutes();
+                self.send_state();
             }
             EngineCommand::Shutdown => unreachable!("handled by caller"),
         }

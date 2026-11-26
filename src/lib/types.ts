@@ -1,7 +1,9 @@
 /** Mirrors crates/lm-protocol (serde-renamed to camelCase at the IPC boundary). */
 
-export type BusId = "A1" | "A2" | "B1" | "B2";
-export const BUS_IDS: BusId[] = ["A1", "A2", "B1", "B2"];
+export type BusId = "A1" | "A2" | "A3" | "A4" | "B1" | "B2" | "B3";
+/** Every bus a mixer can have, in display order; a profile uses a subset (AppState.buses). */
+export const BUS_IDS: BusId[] = ["A1", "A2", "A3", "A4", "B1", "B2", "B3"];
+export const isHardwareBus = (id: BusId): boolean => id.startsWith("A");
 
 export type StripKind = "virtual" | "hardware";
 

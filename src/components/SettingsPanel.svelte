@@ -3,19 +3,39 @@
   import { ipc } from "../lib/ipc";
   import { mixer } from "../lib/state/mixer.svelte";
   import { ui } from "../lib/state/ui.svelte";
+  import KeyCapture from "./KeyCapture.svelte";
 
   let notifications = $state(true);
   let exe = $state("linuxmeeter");
   let copied = $state<string | null>(null);
+  let available = $state(true);
+  let bindings = $state<Record<string, string>>({});
 
-  onMount(async () => {
-    notifications = await ipc.getNotifications();
-    exe = await ipc.getExePath();
+  async function loadShortcuts() {
+    const info = await ipc.getShortcuts();
+    available = info.available;
+    bindings = info.bindings;
+  }
+
+  onMount(() => {
+    void (async () => {
+      notifications = await ipc.getNotifications();
+      exe = await ipc.getExePath();
+      await loadShortcuts();
+    })();
+    return ipc.onShortcutsChanged(() => void loadShortcuts());
   });
 
   function toggleNotifications() {
     notifications = !notifications;
     void ipc.setNotifications(notifications);
+  }
+
+  /** Bind keys to a ctl action; the backend frees the keys from any other action. */
+  async function bind(action: string, name: string, keys: string | null) {
+    const stored = await ipc.setShortcut(action, name, keys);
+    await loadShortcuts();
+    if (keys && !stored) throw new Error("not accepted");
   }
 
   /** Quote for a shell command line only when needed. */
@@ -33,9 +53,14 @@
   ]);
 
   const ACTIONS = [
-    ["toggle-mute", "Mute"],
-    ["volume-up", "+5 %"],
-    ["volume-down", "−5 %"],
+    ["toggle-mute", "Mute", "Mute"],
+    ["volume-up", "+5 %", "Volume up"],
+    ["volume-down", "−5 %", "Volume down"],
+  ] as const;
+  const GLOBAL = [
+    ["toggle-mute-mics", "Mute all microphones"],
+    ["profile-next", "Next profile"],
+    ["profile-prev", "Previous profile"],
   ] as const;
 
   async function copy(text: string) {
@@ -89,34 +114,63 @@
     <div class="sep"></div>
 
     <div class="label">Global shortcuts</div>
-    <div class="hint">
-      Assign these commands to keys in your desktop's shortcut settings. KDE Plasma: System Settings → Keyboard →
-      Shortcuts → Add New → Command or Script. GNOME: Settings → Keyboard → Custom Shortcuts. Click a button to copy
-      its command. Ids (<code>strip:3</code>, <code>A1</code>) keep working after a rename.
-    </div>
+    {#if available}
+      <div class="hint">
+        Click a field and press the keys. They work everywhere, also while the window is hidden. Esc cancels, Backspace
+        clears. They also appear in System Settings → Shortcuts.
+      </div>
 
-    <div class="table">
-      {#each rows as row (row.id)}
-        <div class="name" title={row.id}>{row.name}</div>
-        {#each ACTIONS as [action, text]}
-          {@const cmd = `${q(exe)} ctl ${action} ${row.id}`}
+      <div class="table">
+        {#each GLOBAL as [action, name]}
+          <div class="name wide">{name}</div>
+          <KeyCapture value={bindings[action] ?? null} title={name} onset={(k) => bind(action, name, k)} />
+        {/each}
+      </div>
+
+      <div class="table">
+        <div></div>
+        {#each ACTIONS as [, text]}<div class="colhead">{text}</div>{/each}
+        {#each rows as row (row.id)}
+          <div class="name" title={row.id}>{row.name}</div>
+          {#each ACTIONS as [action, , verb]}
+            {@const id = `${action} ${row.id}`}
+            {@const name = `${verb}: ${row.name}`}
+            <KeyCapture value={bindings[id] ?? null} title={name} onset={(k) => bind(id, name, k)} />
+          {/each}
+        {/each}
+      </div>
+    {:else}
+      <div class="hint warn">
+        In-app shortcuts need KDE Plasma's shortcut service, which is not running. Use the commands below in your
+        desktop's shortcut settings instead (GNOME: Settings → Keyboard → Custom Shortcuts).
+      </div>
+    {/if}
+
+    <details open={!available}>
+      <summary>Commands for scripts and other desktops</summary>
+      <div class="table">
+        {#each rows as row (row.id)}
+          <div class="name" title={row.id}>{row.name}</div>
+          {#each ACTIONS as [action, text]}
+            {@const cmd = `${q(exe)} ctl ${action} ${row.id}`}
+            <button class="cmd" class:done={copied === cmd} title={cmd} onclick={() => copy(cmd)}>
+              {copied === cmd ? "copied" : text}
+            </button>
+          {/each}
+        {/each}
+        {#each GLOBAL as [action, name]}
+          {@const cmd = `${q(exe)} ctl ${action}`}
+          <div class="name wide">{name}</div>
           <button class="cmd" class:done={copied === cmd} title={cmd} onclick={() => copy(cmd)}>
-            {copied === cmd ? "copied" : text}
+            {copied === cmd ? "copied" : "copy"}
           </button>
         {/each}
-      {/each}
-      <div class="name">Profiles</div>
-      {#each [["profile-prev", "Previous"], ["profile-next", "Next"]] as [action, text]}
-        {@const cmd = `${q(exe)} ctl ${action}`}
-        <button class="cmd" class:done={copied === cmd} title={cmd} onclick={() => copy(cmd)}>
-          {copied === cmd ? "copied" : text}
-        </button>
-      {/each}
-    </div>
-    <div class="hint">
-      Also: <code>ctl profile &lt;name&gt;</code>, <code>ctl mute|unmute &lt;channel&gt;</code>,
-      <code>ctl volume-up &lt;channel&gt; 10</code> for other step sizes, <code>ctl list</code>.
-    </div>
+      </div>
+      <div class="hint">
+        Click a button to copy its command. Also: <code>ctl profile &lt;name&gt;</code>,
+        <code>ctl volume-up &lt;channel&gt; 10</code>, <code>ctl list</code>.
+      </div>
+    </details>
   </div>
 </div>
 
@@ -131,7 +185,7 @@
     justify-content: center;
   }
   .panel {
-    width: 480px;
+    width: 500px;
     max-height: calc(100% - 32px);
     overflow-y: auto;
     background: var(--bg-2);
@@ -186,6 +240,9 @@
     line-height: 1.45;
     color: var(--text-2);
   }
+  .hint.warn {
+    color: var(--accent);
+  }
   code {
     font: 10px var(--mono);
     color: var(--text-1);
@@ -223,7 +280,7 @@
   }
   .table {
     display: grid;
-    grid-template-columns: 1fr repeat(3, 72px);
+    grid-template-columns: 1fr repeat(3, 84px);
     gap: 4px 6px;
     align-items: center;
   }
@@ -233,5 +290,28 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .name.wide {
+    grid-column: 1 / 4;
+  }
+  .colhead {
+    font: 500 9px var(--mono);
+    letter-spacing: 0.06em;
+    color: var(--text-3);
+    text-align: center;
+  }
+  details {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  summary {
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--text-2);
+    margin-bottom: 6px;
+  }
+  summary:hover {
+    color: var(--text-1);
   }
 </style>

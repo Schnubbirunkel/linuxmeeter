@@ -9,12 +9,21 @@ use std::collections::BTreeMap;
 pub enum BusId {
     A1,
     A2,
+    A3,
+    A4,
     B1,
     B2,
+    B3,
 }
 
 impl BusId {
-    pub const ALL: [BusId; 4] = [BusId::A1, BusId::A2, BusId::B1, BusId::B2];
+    /// Every bus a mixer can have; a profile uses any subset (`AppState.buses`).
+    pub const ALL: [BusId; 7] = [BusId::A1, BusId::A2, BusId::A3, BusId::A4, BusId::B1, BusId::B2, BusId::B3];
+
+    /// A buses play to a hardware device; B buses are virtual microphones.
+    pub fn is_hardware(&self) -> bool {
+        matches!(self, BusId::A1 | BusId::A2 | BusId::A3 | BusId::A4)
+    }
 
     /// Lowercase node-name fragment: `lm.bus.a1`.
     pub fn node_base(&self) -> String {
@@ -297,6 +306,16 @@ pub enum EngineCommand {
     DeleteProfile { name: String },
     /// Switch to the next (`step` = 1) or previous (-1) profile, wrapping.
     CycleProfile { step: i32 },
+    /// Add an input strip. Hardware strips capture `hw_key` (default: the
+    /// system default microphone, else the first unused input).
+    AddStrip { kind: StripKind, hw_key: Option<String> },
+    RemoveStrip { strip: StripId },
+    /// Add the first free A bus (`hardware`, plays to the default output
+    /// device) or B bus (virtual microphone).
+    AddBus { hardware: bool },
+    RemoveBus { bus: BusId },
+    /// Mute or unmute every hardware input strip at once; emits `State`.
+    SetMicsMute { mute: bool },
     Shutdown,
 }
 
@@ -578,6 +597,10 @@ mod tests {
                 name: "Gaming".into(),
             },
             EngineCommand::CycleProfile { step: 1 },
+            EngineCommand::AddStrip { kind: StripKind::Hardware, hw_key: None },
+            EngineCommand::RemoveStrip { strip: 3 },
+            EngineCommand::AddBus { hardware: true },
+            EngineCommand::RemoveBus { bus: BusId::A3 },
             EngineCommand::Shutdown,
         ];
         for cmd in cmds {
@@ -681,9 +704,15 @@ mod tests {
         assert!(!CompParams::default().enabled);
     }
 
+    /// Routes are a BTreeMap keyed by BusId; declaration order is the order
+    /// they are shown and saved in, so A buses must come before B buses.
     #[test]
-    fn bus_ids_cover_two_hardware_and_two_virtual() {
-        assert_eq!(BusId::ALL.len(), 4);
-        assert_eq!(BusId::ALL, [BusId::A1, BusId::A2, BusId::B1, BusId::B2]);
+    fn bus_ids_sort_hardware_before_virtual() {
+        let mut sorted = BusId::ALL;
+        sorted.sort();
+        assert_eq!(sorted, BusId::ALL);
+        assert_eq!(BusId::ALL.iter().filter(|b| b.is_hardware()).count(), 4);
+        assert_eq!(BusId::A3.node_base(), "lm.bus.a3");
+        assert_eq!(serde_json::to_value(BusId::B3).unwrap(), "B3");
     }
 }

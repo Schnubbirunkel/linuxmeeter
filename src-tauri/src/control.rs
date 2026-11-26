@@ -11,17 +11,22 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use lm_protocol::{AppState, EngineCommand, Target};
+use lm_protocol::{AppState, EngineCommand, StripKind, Target};
 
 pub const HELP: &str = "\
 usage: linuxmeeter ctl <command> [args]
 
   toggle-mute <channel>          mute / unmute
+  toggle-mute-mics               mute / unmute every hardware input (also mute-mics, unmute-mics)
   mute <channel>                 mute
   unmute <channel>               unmute
   volume-up <channel> [percent]  raise the fader (default 5 % of its travel)
   volume-down <channel> [percent]
   rename <channel> <new name>    rename a strip or bus (also in other programs)
+  add-strip hardware|virtual     add an input strip
+  remove-strip <channel>         remove an input strip
+  add-bus a|b                    add a hardware output (A) or virtual mic (B) bus
+  remove-bus <bus>               remove a bus
   profile <name>                 switch profile (a new name copies the current mixer)
   profile-next | profile-prev    cycle through saved profiles
   show                           bring the window up
@@ -59,13 +64,26 @@ pub fn send(args: &[String]) -> Result<String, String> {
 }
 
 /// What the app does for one `ctl` request.
+/// What a desktop notification should report after a command.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Notify {
+    Channel(Target),
+    Mics,
+}
+
+/// True when there are hardware inputs and every one is muted.
+pub fn mics_muted(state: &AppState) -> bool {
+    let mut mics = state.strips.iter().filter(|s| s.kind == lm_protocol::StripKind::Hardware).peekable();
+    mics.peek().is_some() && mics.all(|s| s.mute)
+}
+
 #[derive(Debug)]
 pub enum Action {
-    /// Forward to the engine. `notify` = the target to report on once the
-    /// engine has applied it.
+    /// Forward to the engine. `notify` = what to report on once the engine
+    /// has applied it.
     Engine {
         cmd: EngineCommand,
-        notify: Option<Target>,
+        notify: Option<Notify>,
         reply: String,
     },
     Show,
@@ -115,7 +133,7 @@ pub fn parse(args: &[String], state: &AppState) -> Result<Action, String> {
             .ok_or_else(|| format!("`{cmd}` needs a channel name"))?;
         resolve(spec, state)
     };
-    let engine = |cmd: EngineCommand, notify: Option<Target>, reply: String| {
+    let engine = |cmd: EngineCommand, notify: Option<Notify>, reply: String| {
         Ok(Action::Engine { cmd, notify, reply })
     };
     match cmd.as_str() {
@@ -128,7 +146,15 @@ pub fn parse(args: &[String], state: &AppState) -> Result<Action, String> {
                     mute: c == "mute",
                 },
             };
-            engine(cmd, Some(target), label)
+            engine(cmd, Some(Notify::Channel(target)), label)
+        }
+        "toggle-mute-mics" | "mute-mics" | "unmute-mics" => {
+            let mute = match cmd.as_str() {
+                "toggle-mute-mics" => !mics_muted(state),
+                c => c == "mute-mics",
+            };
+            let reply = if mute { "microphones muted" } else { "microphones live" };
+            engine(EngineCommand::SetMicsMute { mute }, Some(Notify::Mics), reply.into())
         }
         "volume-up" | "volume-down" => {
             let (target, label) = channel(0)?;
@@ -147,7 +173,7 @@ pub fn parse(args: &[String], state: &AppState) -> Result<Action, String> {
                     target,
                     step: sign * percent / 100.0,
                 },
-                Some(target),
+                Some(Notify::Channel(target)),
                 label,
             )
         }
@@ -164,6 +190,30 @@ pub fn parse(args: &[String], state: &AppState) -> Result<Action, String> {
                 format!("{old} -> {label}"),
             )
         }
+        "add-strip" => {
+            let kind = match rest.first().map(|s| s.to_lowercase()).as_deref() {
+                Some("hardware" | "hw" | "mic") => StripKind::Hardware,
+                Some("virtual" | "virt") => StripKind::Virtual,
+                _ => return Err("`add-strip` needs hardware or virtual".into()),
+            };
+            engine(EngineCommand::AddStrip { kind, hw_key: rest.get(1).cloned() }, None, "strip added".into())
+        }
+        "remove-strip" => match channel(0)? {
+            (Target::Strip { strip }, label) => engine(EngineCommand::RemoveStrip { strip }, None, format!("removed {label}")),
+            _ => Err("`remove-strip` needs a strip, not a bus".into()),
+        },
+        "add-bus" => {
+            let hardware = match rest.first().map(|s| s.to_lowercase()).as_deref() {
+                Some("a" | "hardware" | "hw") => true,
+                Some("b" | "virtual" | "mic") => false,
+                _ => return Err("`add-bus` needs a (hardware output) or b (virtual mic)".into()),
+            };
+            engine(EngineCommand::AddBus { hardware }, None, "bus added".into())
+        }
+        "remove-bus" => match channel(0)? {
+            (Target::Bus { bus }, label) => engine(EngineCommand::RemoveBus { bus }, None, format!("removed {label}")),
+            _ => Err("`remove-bus` needs a bus, not a strip".into()),
+        },
         "profile" => {
             let name = rest.join(" ");
             let name = lm_protocol::clean_profile_name(&name).ok_or("`profile` needs a name")?;
@@ -338,7 +388,7 @@ mod tests {
             } => {
                 assert_eq!(target, Target::Strip { strip: 1 });
                 assert_eq!(step, -0.05);
-                assert_eq!(notify, Some(target));
+                assert_eq!(notify, Some(Notify::Channel(target)));
             }
             other => panic!("{other:?}"),
         }
@@ -406,6 +456,25 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert!(parse(&args(&["rename", "mic"]), &state()).is_err());
+    }
+
+    #[test]
+    fn mic_toggle_follows_current_state() {
+        let mut s = state();
+        s.strips[0].kind = StripKind::Hardware;
+        let toggled = |s: &AppState| match parse(&args(&["toggle-mute-mics"]), s).unwrap() {
+            Action::Engine { cmd: EngineCommand::SetMicsMute { mute }, notify, .. } => {
+                assert_eq!(notify, Some(Notify::Mics));
+                mute
+            }
+            other => panic!("{other:?}"),
+        };
+        assert!(toggled(&s), "live mics get muted");
+        s.strips[0].mute = true;
+        assert!(mics_muted(&s));
+        assert!(!toggled(&s), "muted mics come back");
+        s.strips.retain(|x| x.kind != StripKind::Hardware);
+        assert!(!mics_muted(&s), "no mics is not 'muted'");
     }
 
     #[test]

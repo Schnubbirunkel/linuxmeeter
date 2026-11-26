@@ -1,33 +1,50 @@
 <script lang="ts">
-  import { BUS_IDS, type BusId } from "../lib/types";
+  import { isHardwareBus, type BusId } from "../lib/types";
+  import { mixer } from "../lib/state/mixer.svelte";
 
   interface Props {
     routes: Record<BusId, boolean>;
     ontoggle: (bus: BusId, on: boolean) => void;
   }
   let { routes, ontoggle }: Props = $props();
+
+  // One row of A buses (hardware outputs), one of B buses (virtual mics).
+  let rows = $derived(
+    [mixer.buses.filter((b) => isHardwareBus(b.id)), mixer.buses.filter((b) => !isHardwareBus(b.id))].filter((r) => r.length > 0),
+  );
 </script>
 
 <div class="routes">
-  {#each BUS_IDS as bus}
-    <button
-      class="rbtn"
-      class:active={routes[bus]}
-      aria-pressed={routes[bus]}
-      onclick={() => ontoggle(bus, !routes[bus])}
-    >
-      {bus}
-    </button>
+  {#each rows as row}
+    <div class="row">
+      {#each row as bus (bus.id)}
+        <button
+          class="rbtn"
+          class:active={routes[bus.id]}
+          aria-pressed={!!routes[bus.id]}
+          title="Send to {bus.id} {bus.label}"
+          onclick={() => ontoggle(bus.id, !routes[bus.id])}
+        >
+          {bus.id}
+        </button>
+      {/each}
+    </div>
   {/each}
 </div>
 
 <style>
   .routes {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .row {
+    display: flex;
     gap: 4px;
   }
   .rbtn {
+    flex: 1;
+    min-width: 0;
     height: 22px;
     font: 500 10px var(--mono);
     letter-spacing: 0.06em;

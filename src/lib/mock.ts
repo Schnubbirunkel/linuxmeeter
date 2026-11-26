@@ -7,6 +7,7 @@
 import type { AppState, BusId, MeterFrame, StripState } from "./types";
 import type { Ipc, Target } from "./ipc";
 import { powerSum } from "./utils/db";
+import { BUS_IDS, isHardwareBus } from "./types";
 
 type SimKind = "speech" | "music" | "steady";
 
@@ -56,12 +57,8 @@ const defaultGate = () => ({ enabled: false, thresholdDb: -40, attackMs: 20, rel
 const defaultComp = () => ({ enabled: false, thresholdDb: -18, ratio: 4, attackMs: 20, releaseMs: 100, makeupDb: 0 });
 const defaultLimiter = () => ({ enabled: true, thresholdDb: -1, releaseMs: 50 });
 
-const routes = (on: BusId[]): Record<BusId, boolean> => ({
-  A1: on.includes("A1"),
-  A2: on.includes("A2"),
-  B1: on.includes("B1"),
-  B2: on.includes("B2"),
-});
+const routes = (on: BusId[]): Record<BusId, boolean> =>
+  Object.fromEntries(BUS_IDS.map((b) => [b, on.includes(b)])) as Record<BusId, boolean>;
 
 const state: AppState = {
   profileName: "Default",
@@ -103,6 +100,7 @@ function findStrip(id: number): StripState | undefined {
 
 let mockAutostart = false;
 let mockNotifications = true;
+const mockShortcuts: Record<string, string> = { "toggle-mute-mics": "Meta+M" };
 
 function emitState(): void {
   const snap = structuredClone(state);
@@ -238,6 +236,65 @@ export const mockIpc: Ipc = {
     return Promise.resolve();
   },
   getExePath: () => Promise.resolve("/usr/bin/linuxmeeter"),
+  addStrip: (kind) => {
+    const id = Math.max(0, ...state.strips.map((s) => s.id)) + 1;
+    const hw = kind === "hardware";
+    const strip: StripState = {
+      id,
+      kind,
+      label: hw ? `Mic ${id}` : `Virtual ${id}`,
+      hwKey: hw ? (state.devices.find((d) => d.mediaClass === "Audio/Source")?.nodeName ?? null) : null,
+      online: true,
+      gainDb: 0,
+      mute: false,
+      solo: false,
+      routes: routes(hw ? [] : ["A1"]),
+      gate: defaultGate(),
+      comp: defaultComp(),
+      eq: defaultEq(),
+    };
+    const at = hw ? state.strips.filter((s) => s.kind === "hardware").length : state.strips.length;
+    state.strips.splice(at, 0, strip);
+    sims.set(id, makeSim(hw ? "speech" : "music", -20, 6, Math.random() * 6));
+    emitState();
+    return Promise.resolve();
+  },
+  removeStrip: (stripId) => {
+    state.strips = state.strips.filter((s) => s.id !== stripId);
+    emitState();
+    return Promise.resolve();
+  },
+  addBus: (hardware) => {
+    const id = BUS_IDS.find((b) => isHardwareBus(b) === hardware && !state.buses.some((x) => x.id === b));
+    if (!id) return Promise.resolve();
+    const bus = {
+      id,
+      label: hardware ? `Speakers ${id}` : `Virtual Mic ${id}`,
+      targetHwKey: hardware ? (state.devices.find((d) => d.mediaClass === "Audio/Sink")?.nodeName ?? null) : null,
+      online: true,
+      gainDb: 0,
+      mute: false,
+      limiter: defaultLimiter(),
+    };
+    state.buses.push(bus);
+    state.buses.sort((a, b) => BUS_IDS.indexOf(a.id) - BUS_IDS.indexOf(b.id));
+    emitState();
+    return Promise.resolve();
+  },
+  removeBus: (bus) => {
+    state.buses = state.buses.filter((b) => b.id !== bus);
+    for (const s of state.strips) s.routes[bus] = false;
+    emitState();
+    return Promise.resolve();
+  },
+  getShortcuts: () => Promise.resolve({ available: true, bindings: { ...mockShortcuts } }),
+  setShortcut: (action, _name, keys) => {
+    for (const [a, k] of Object.entries(mockShortcuts)) if (keys && k === keys) delete mockShortcuts[a];
+    if (keys) mockShortcuts[action] = keys;
+    else delete mockShortcuts[action];
+    return Promise.resolve(keys);
+  },
+  onShortcutsChanged: () => () => {},
   getAutostart: () => Promise.resolve(mockAutostart),
   setAutostart: (on) => {
     mockAutostart = on;

@@ -39,6 +39,8 @@
     ondevicechange={(v) => mixer.setStripDevice(strip.id, v)}
     onrename={(v) => mixer.rename({ strip: strip.id }, v)}
     nameTitle={`Shortcut id: strip:${strip.id}`}
+    onremove={() => mixer.removeStrip(strip.id)}
+    removeTitle="Remove this strip"
   />
 
   <div class="mf">

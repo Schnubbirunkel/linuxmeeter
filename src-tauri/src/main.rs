@@ -2,14 +2,17 @@
 
 mod control;
 mod notify;
+mod settings;
+mod shortcuts;
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::Duration;
 
+use control::Notify;
 use lm_protocol::{
     AppState, BusId, CompParams, EngineCommand, EngineEvent, EqParams, GateParams, LimiterParams,
-    StripId, Target,
+    StripId, StripKind, Target,
 };
 use tauri::{Emitter, Manager};
 
@@ -17,6 +20,31 @@ struct AppData {
     cmd_tx: pipewire::channel::Sender<EngineCommand>,
     state: Arc<RwLock<Option<AppState>>>,
     notifier: notify::Notifier,
+    shortcuts: Arc<OnceLock<Arc<shortcuts::Shortcuts>>>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ShortcutInfo {
+    /// KDE's global shortcut service is there.
+    available: bool,
+    /// ctl action -> keys.
+    bindings: std::collections::BTreeMap<String, String>,
+}
+
+#[tauri::command]
+fn get_shortcuts(data: tauri::State<AppData>) -> ShortcutInfo {
+    ShortcutInfo {
+        available: data.shortcuts.get().is_some_and(|s| s.available()),
+        bindings: settings::get().shortcuts,
+    }
+}
+
+/// Bind `keys` ("Ctrl+Alt+M", None = remove) to a ctl `action`; returns the stored keys.
+#[tauri::command]
+fn set_shortcut(data: tauri::State<AppData>, action: String, name: String, keys: Option<String>) -> Result<Option<String>, String> {
+    let sc = data.shortcuts.get().ok_or("shortcuts are still starting")?;
+    sc.set(&action, &name, keys.as_deref())
 }
 
 fn send(data: &tauri::State<AppData>, cmd: EngineCommand) -> Result<(), String> {
@@ -126,6 +154,26 @@ fn get_exe_path() -> String {
 }
 
 #[tauri::command]
+fn add_strip(data: tauri::State<AppData>, kind: StripKind) -> Result<(), String> {
+    send(&data, EngineCommand::AddStrip { kind, hw_key: None })
+}
+
+#[tauri::command]
+fn remove_strip(data: tauri::State<AppData>, strip_id: StripId) -> Result<(), String> {
+    send(&data, EngineCommand::RemoveStrip { strip: strip_id })
+}
+
+#[tauri::command]
+fn add_bus(data: tauri::State<AppData>, hardware: bool) -> Result<(), String> {
+    send(&data, EngineCommand::AddBus { hardware })
+}
+
+#[tauri::command]
+fn remove_bus(data: tauri::State<AppData>, bus: BusId) -> Result<(), String> {
+    send(&data, EngineCommand::RemoveBus { bus })
+}
+
+#[tauri::command]
 fn set_default_output(data: tauri::State<AppData>, on: bool) -> Result<(), String> {
     send(&data, EngineCommand::SetDefaultOutput { on })
 }
@@ -146,6 +194,117 @@ fn show_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
         let _ = w.set_focus();
         set_meters(app, true);
     }
+}
+
+/// Runs `ctl`-style commands for every remote entry point: the control
+/// socket, the tray menu and the global shortcuts.
+#[derive(Clone)]
+struct Ctl {
+    state: Arc<RwLock<Option<AppState>>>,
+    /// What to report on once the engine's next State arrives.
+    pending: Arc<Mutex<VecDeque<Notify>>>,
+    cmd_tx: pipewire::channel::Sender<EngineCommand>,
+    handle: tauri::AppHandle,
+}
+
+impl Ctl {
+    fn run(&self, args: &[String]) -> String {
+        let Some(current) = self.state.read().expect("state lock").clone() else {
+            return "error: mixer is still starting".into();
+        };
+        match control::parse(args, &current) {
+            Ok(control::Action::Engine { cmd, notify, reply }) => {
+                if let Some(n) = notify {
+                    self.pending.lock().expect("pending lock").push_back(n);
+                }
+                match self.cmd_tx.send(cmd) {
+                    Ok(()) => format!("ok: {reply}"),
+                    Err(_) => "error: engine unavailable".into(),
+                }
+            }
+            Ok(control::Action::Show) => {
+                show_window(&self.handle);
+                "ok: shown".into()
+            }
+            Ok(control::Action::Reply(text)) => format!("ok: {text}"),
+            Err(e) => format!("error: {e}"),
+        }
+    }
+
+    fn run_words(&self, args: &[&str]) {
+        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        let reply = self.run(&args);
+        if let Some(e) = reply.strip_prefix("error: ") {
+            tracing::warn!("{args:?}: {e}");
+        }
+    }
+}
+
+fn mics_note(state: &AppState) -> notify::Note {
+    let muted = control::mics_muted(state);
+    notify::Note {
+        key: "mics".into(),
+        summary: if muted { "Microphones muted".into() } else { "Microphones live".into() },
+        body: "linuxmeeter".into(),
+        icon: if muted { "microphone-sensitivity-muted" } else { "audio-input-microphone" },
+        value: None,
+        timeout_ms: 2000,
+    }
+}
+
+// ---- tray --------------------------------------------------------------------
+
+const TRAY_PROFILE: &str = "profile:";
+
+/// What the tray menu shows; it is rebuilt only when this changes.
+#[derive(PartialEq, Clone, Default)]
+struct TrayModel {
+    has_mics: bool,
+    mics_muted: bool,
+    profile: String,
+    profiles: Vec<String>,
+}
+
+impl TrayModel {
+    fn of(s: &AppState) -> Self {
+        Self {
+            has_mics: s.strips.iter().any(|x| x.kind == StripKind::Hardware),
+            mics_muted: control::mics_muted(s),
+            profile: s.profile_name.clone(),
+            profiles: s.profiles.clone(),
+        }
+    }
+}
+
+fn tray_menu<R: tauri::Runtime, M: Manager<R>>(app: &M, m: &TrayModel) -> tauri::Result<tauri::menu::Menu<R>> {
+    use tauri::menu::{CheckMenuItem, MenuItem, PredefinedMenuItem};
+    let menu = tauri::menu::Menu::new(app)?;
+    menu.append(&CheckMenuItem::with_id(app, "mics", "Mute all microphones", m.has_mics, m.mics_muted, None::<&str>)?)?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&MenuItem::with_id(app, "profiles-label", "Profile", false, None::<&str>)?)?;
+    for name in &m.profiles {
+        let id = format!("{TRAY_PROFILE}{name}");
+        menu.append(&CheckMenuItem::with_id(app, id, format!("  {name}"), true, *name == m.profile, None::<&str>)?)?;
+    }
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&MenuItem::with_id(app, "show", "Show mixer", true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?)?;
+    Ok(menu)
+}
+
+fn refresh_tray(handle: &tauri::AppHandle, m: TrayModel) {
+    let h = handle.clone();
+    let _ = handle.run_on_main_thread(move || {
+        let Some(tray) = h.tray_by_id("main") else { return };
+        match tray_menu(&h, &m) {
+            Ok(menu) => {
+                let _ = tray.set_menu(Some(menu));
+                let tip = if m.mics_muted { "linuxmeeter — microphones muted" } else { "linuxmeeter" };
+                let _ = tray.set_tooltip(Some(tip));
+            }
+            Err(e) => tracing::warn!("tray menu: {e}"),
+        }
+    });
 }
 
 /// Notification for a strip/bus after a shortcut changed it.
@@ -271,11 +430,18 @@ fn main() {
     let cmd_tx = engine.cmd_tx.clone();
     let state: Arc<RwLock<Option<AppState>>> = Arc::new(RwLock::new(None));
     let notifier = notify::Notifier::spawn();
-    // Shortcut targets waiting for the engine's next State to report on.
-    let pending: Arc<Mutex<VecDeque<Target>>> = Arc::new(Mutex::new(VecDeque::new()));
+    // What to report on once the engine's next State arrives.
+    let pending: Arc<Mutex<VecDeque<Notify>>> = Arc::new(Mutex::new(VecDeque::new()));
+    let shortcut_cell: Arc<OnceLock<Arc<shortcuts::Shortcuts>>> = Arc::new(OnceLock::new());
+    let exit_shortcuts = shortcut_cell.clone();
 
     tauri::Builder::default()
-        .manage(AppData { cmd_tx: engine.cmd_tx.clone(), state: state.clone(), notifier: notifier.clone() })
+        .manage(AppData {
+            cmd_tx: engine.cmd_tx.clone(),
+            state: state.clone(),
+            notifier: notifier.clone(),
+            shortcuts: shortcut_cell.clone(),
+        })
         .invoke_handler(tauri::generate_handler![
             get_state,
             set_gain,
@@ -289,6 +455,10 @@ fn main() {
             set_strip_device,
             set_bus_target,
             set_default_output,
+            add_strip,
+            remove_strip,
+            add_bus,
+            remove_bus,
             get_autostart,
             set_autostart,
             rename,
@@ -298,14 +468,24 @@ fn main() {
             get_notifications,
             set_notifications,
             get_exe_path,
+            get_shortcuts,
+            set_shortcut,
         ])
         .setup(move |app| {
+            let ctl = Ctl {
+                state: state.clone(),
+                pending: pending.clone(),
+                cmd_tx: engine.cmd_tx.clone(),
+                handle: app.handle().clone(),
+            };
+
             // Pump engine events into the webview.
             let handle = app.handle().clone();
             let evt_rx = engine.evt_rx;
             let pump_state = state.clone();
             let pump_pending = pending.clone();
             let pump_notifier = notifier.clone();
+            let mut tray_model = TrayModel::default();
             std::thread::Builder::new()
                 .name("lm-event-pump".into())
                 .spawn(move || {
@@ -327,15 +507,20 @@ fn main() {
                                         });
                                     }
                                 }
-                                let targets: Vec<Target> = pump_pending
-                                    .lock()
-                                    .expect("pending lock")
-                                    .drain(..)
-                                    .collect();
-                                for t in targets {
-                                    if let Some(note) = channel_note(&s, t) {
+                                let pending: Vec<Notify> = pump_pending.lock().expect("pending lock").drain(..).collect();
+                                for n in pending {
+                                    let note = match n {
+                                        Notify::Channel(t) => channel_note(&s, t),
+                                        Notify::Mics => Some(mics_note(&s)),
+                                    };
+                                    if let Some(note) = note {
                                         pump_notifier.send(note);
                                     }
+                                }
+                                let model = TrayModel::of(&s);
+                                if model != tray_model {
+                                    tray_model = model.clone();
+                                    refresh_tray(&handle, model);
                                 }
                             }
                             EngineEvent::Meters(f) => {
@@ -347,51 +532,43 @@ fn main() {
                 .expect("spawn event pump");
 
             // Tray: closing the window hides it; the engine (and all virtual
-            // devices) keeps running until Quit.
-            let show = tauri::menu::MenuItem::with_id(app, "show", "Show mixer", true, None::<&str>)?;
-            let quit = tauri::menu::MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = tauri::menu::Menu::with_items(app, &[&show, &quit])?;
+            // devices) keeps running until Quit. Clicking it opens the menu:
+            // mute all mics, switch profile, show, quit. The pump rebuilds the
+            // menu whenever what it shows changes.
+            let tray_ctl = ctl.clone();
             tauri::tray::TrayIconBuilder::with_id("main")
                 .icon(app.default_window_icon().expect("window icon").clone())
                 .tooltip("linuxmeeter")
-                .menu(&menu)
+                .menu(&tray_menu(app, &TrayModel::default())?)
                 .show_menu_on_left_click(true)
-                .on_menu_event(|app, event| match event.id.as_ref() {
+                .on_menu_event(move |app, event| match event.id.as_ref() {
                     "show" => show_window(app),
                     "quit" => app.exit(0),
-                    _ => {}
+                    "mics" => tray_ctl.run_words(&["toggle-mute-mics"]),
+                    id => {
+                        if let Some(name) = id.strip_prefix(TRAY_PROFILE) {
+                            tray_ctl.run_words(&["profile", name]);
+                        }
+                    }
                 })
                 .build(app)?;
 
-            // Global shortcuts / scripts: `linuxmeeter ctl …`.
+            // Scripts and desktop shortcut commands: `linuxmeeter ctl …`.
             if let Some(listener) = listener {
-                let handle = app.handle().clone();
-                let ctl_state = state.clone();
-                let ctl_pending = pending.clone();
-                let cmd_tx = engine.cmd_tx.clone();
-                control::serve(listener, move |args| {
-                    let Some(current) = ctl_state.read().expect("state lock").clone() else {
-                        return "error: mixer is still starting".into();
-                    };
-                    match control::parse(&args, &current) {
-                        Ok(control::Action::Engine { cmd, notify, reply }) => {
-                            if let Some(t) = notify {
-                                ctl_pending.lock().expect("pending lock").push_back(t);
-                            }
-                            match cmd_tx.send(cmd) {
-                                Ok(()) => format!("ok: {reply}"),
-                                Err(_) => "error: engine unavailable".into(),
-                            }
-                        }
-                        Ok(control::Action::Show) => {
-                            show_window(&handle);
-                            "ok: shown".into()
-                        }
-                        Ok(control::Action::Reply(text)) => format!("ok: {text}"),
-                        Err(e) => format!("error: {e}"),
-                    }
-                });
+                let sock_ctl = ctl.clone();
+                control::serve(listener, move |args| sock_ctl.run(&args));
             }
+            // In-app global shortcuts (KDE): a key press runs its ctl action.
+            let key_ctl = ctl.clone();
+            let changed_handle = app.handle().clone();
+            let sc = shortcuts::Shortcuts::start(
+                move |action| key_ctl.run_words(&action.split(' ').collect::<Vec<_>>()),
+                move || {
+                    let _ = changed_handle.emit("shortcuts_changed", ());
+                },
+            );
+            let _ = shortcut_cell.set(sc);
+            app.manage(ctl);
 
             if std::env::args().any(|a| a == "--minimized") {
                 if let Some(w) = app.get_webview_window("main") {
@@ -415,6 +592,9 @@ fn main() {
         .run(move |_app, event| {
             if let tauri::RunEvent::Exit = event {
                 let _ = std::fs::remove_file(control::socket_path());
+                if let Some(sc) = exit_shortcuts.get() {
+                    sc.deactivate();
+                }
                 // Graceful engine shutdown -> modules unload -> zero lm.* nodes left.
                 let _ = cmd_tx.send(EngineCommand::Shutdown);
                 std::thread::sleep(Duration::from_millis(200));

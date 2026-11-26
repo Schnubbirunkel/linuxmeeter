@@ -38,6 +38,8 @@
     ondevicechange={(v) => mixer.setBusTarget(bus.id, v)}
     onrename={(v) => mixer.rename({ bus: bus.id }, v)}
     nameTitle={`Shortcut id: ${bus.id}`}
+    onremove={() => mixer.removeBus(bus.id)}
+    removeTitle="Remove this bus"
   />
 
   <div class="mf">

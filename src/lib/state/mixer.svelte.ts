@@ -4,7 +4,7 @@
  * backend. Continuous controls (fader drags) throttle IPC to one call per
  * animation frame, with a guaranteed final send.
  */
-import type { AppState, BusId, BusState, CompParams, DeviceInfo, EqParams, GateParams, LimiterParams, StripState } from "../types";
+import type { AppState, BusId, BusState, StripKind, CompParams, DeviceInfo, EqParams, GateParams, LimiterParams, StripState } from "../types";
 import { ipc, type Target } from "../ipc";
 import { ingestFrame } from "./meters";
 
@@ -188,6 +188,24 @@ class MixerStore {
     if (name === this.profileName) return;
     this.profiles = this.profiles.filter((p) => p !== name);
     void ipc.deleteProfile(name);
+  }
+
+  addStrip(kind: StripKind): void {
+    void ipc.addStrip(kind);
+  }
+
+  removeStrip(stripId: number): void {
+    this.strips = this.strips.filter((s) => s.id !== stripId);
+    void ipc.removeStrip(stripId);
+  }
+
+  addBus(hardware: boolean): void {
+    void ipc.addBus(hardware);
+  }
+
+  removeBus(bus: BusId): void {
+    this.buses = this.buses.filter((b) => b.id !== bus);
+    void ipc.removeBus(bus);
   }
 
   setDefaultOutput(on: boolean): void {

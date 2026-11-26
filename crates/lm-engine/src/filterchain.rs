@@ -106,7 +106,10 @@ pub fn virtual_strip_args(sink_name: &str, label: &str, autoconnect_output: bool
             "node.description": label,
             "media.class": "Audio/Sink",
             "audio.position": [ "FL", "FR" ],
-            "node.virtual": true,
+            // Explicitly not virtual (filter-chain defaults to true): with
+            // node.virtual pipewire-pulse drops the HARDWARE flag and KDE's
+            // volume applet hides the device unless "Show virtual devices" is on.
+            "node.virtual": false,
             "state.restore-props": false,
         },
         "playback.props": playback_props,
@@ -178,7 +181,8 @@ pub fn bus_args(bus_name: &str, label: &str, hw_target: Option<&str>) -> String 
             "node.description": label,
             "media.class": "Audio/Source",
             "audio.position": [ "FL", "FR" ],
-            "node.virtual": true,
+            // Explicitly not virtual: see virtual_strip_args.
+            "node.virtual": false,
             "state.restore-props": false,
         }),
     };
@@ -250,11 +254,13 @@ mod tests {
     }
 
     #[test]
-    fn every_node_is_marked_virtual() {
+    fn internal_streams_are_virtual_but_devices_programs_pick_are_not() {
         for (what, args) in all_args() {
             let v = parse(&args);
             for props in every_props_block(&v) {
-                assert_eq!(props.get("node.virtual"), Some(&Value::Bool(true)), "{what}");
+                let class = props.get("media.class").and_then(Value::as_str).unwrap_or("");
+                let user_facing = class == "Audio/Sink" || class == "Audio/Source";
+                assert_eq!(props.get("node.virtual"), Some(&Value::Bool(!user_facing)), "{what} ({class})");
             }
         }
     }
