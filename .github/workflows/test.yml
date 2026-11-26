@@ -13,18 +13,11 @@ jobs:
     container: archlinux:base-devel
     steps:
       - name: Install dependencies
-        run: pacman -Syu --noconfirm --needed git rust clang pkgconf pipewire lsp-plugins-lv2 nodejs pnpm
+        run: pacman -Syu --noconfirm --needed git rust clang pkgconf pipewire pipewire-audio lsp-plugins-lv2 nodejs pnpm
       - uses: actions/checkout@v4
       - name: Unit tests (Rust)
         run: cargo test -p lm-protocol -p lm-engine
       - name: Unit tests (frontend)
         run: pnpm install --frozen-lockfile --config.strict-dep-builds=false && pnpm test
-      - name: Diagnostics
-        run: |
-          pacman -Ql pipewire | grep -i -E "filter|lv2" || true
-          ls /usr/lib/spa-0.2/ /usr/lib/spa-0.2/filter-graph 2>&1 || true
-          ls /usr/lib/lv2 | head || true
       - name: Audio integration tests
-        env:
-          PIPEWIRE_DEBUG: "3"
-        run: ./scripts/with-test-daemon.sh cargo test -p lm-engine --test audio -- --ignored --test-threads=1 strip_module_appears 2>&1 | grep -v -E "^\[D\]" | head -150; ./scripts/with-test-daemon.sh cargo test -p lm-engine --test audio -- --ignored --test-threads=1
+        run: ./scripts/with-test-daemon.sh cargo test -p lm-engine --test audio -- --ignored --test-threads=1

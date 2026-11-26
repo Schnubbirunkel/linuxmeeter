@@ -121,8 +121,24 @@ pub fn format_keys(code: i32) -> Option<String> {
 // ---- KDE service -------------------------------------------------------------
 
 /// A shortcut's action id: [component, action, component name, action name].
-fn action_id(action: &str, friendly: &str) -> Vec<String> {
-    vec![COMPONENT.into(), action.into(), "linuxmeeter".into(), friendly.into()]
+fn action_id(action: &str) -> Vec<String> {
+    vec![COMPONENT.into(), action.into(), "linuxmeeter".into(), describe(action)]
+}
+
+/// The name System Settings shows: "Volume up strip:3", "Mute all microphones".
+/// Built from the action (ids, not labels) so it stays right after a rename.
+pub fn describe(action: &str) -> String {
+    let (verb, target) = action.split_once(' ').unwrap_or((action, ""));
+    let verb = match verb {
+        "toggle-mute" => "Mute/unmute",
+        "volume-up" => "Volume up",
+        "volume-down" => "Volume down",
+        "toggle-mute-mics" => "Mute all microphones",
+        "profile-next" => "Next profile",
+        "profile-prev" => "Previous profile",
+        other => other,
+    };
+    format!("{verb} {target}").trim().to_string()
 }
 
 /// QKeySequence over D-Bus: a struct of four key codes.
@@ -157,7 +173,7 @@ impl Shortcuts {
         let Some(conn) = me.conn.clone() else { return me };
 
         for (action, keys) in crate::settings::get().shortcuts {
-            if let Err(e) = me.bind(&action, &action, Some(&keys)) {
+            if let Err(e) = me.bind(&action, Some(&keys)) {
                 tracing::warn!("shortcut {action} ({keys}): {e}");
             }
         }
@@ -230,8 +246,8 @@ impl Shortcuts {
     }
 
     /// Bind `keys` to `action` (None removes it). Returns the stored key text.
-    fn bind(&self, action: &str, friendly: &str, keys: Option<&str>) -> Result<Option<String>, String> {
-        let id = action_id(action, friendly);
+    fn bind(&self, action: &str, keys: Option<&str>) -> Result<Option<String>, String> {
+        let id = action_id(action);
         let Some(keys) = keys else {
             let _ = self.call("setShortcutKeys", &(id.clone(), Vec::<(Vec<i32>,)>::new(), SET_PRESENT | NO_AUTOLOADING));
             let _ = self.call("unregister", &(COMPONENT, action));
@@ -245,12 +261,12 @@ impl Shortcuts {
         if !got.iter().any(|(k,)| k.first() == Some(&code)) {
             return Err(format!("{keys} is already used by another shortcut"));
         }
-        self.registered.lock().expect("lock").insert(action.into(), friendly.into());
+        self.registered.lock().expect("lock").insert(action.into(), describe(action));
         Ok(format_keys(code))
     }
 
     /// Set (or clear) a binding and save it.
-    pub fn set(&self, action: &str, friendly: &str, keys: Option<&str>) -> Result<Option<String>, String> {
+    pub fn set(&self, action: &str, keys: Option<&str>) -> Result<Option<String>, String> {
         // Another action may already hold these keys: free them first.
         if let Some(k) = keys {
             let taken: Vec<String> = crate::settings::get()
@@ -260,13 +276,13 @@ impl Shortcuts {
                 .map(|(a, _)| a.clone())
                 .collect();
             for a in taken {
-                let _ = self.bind(&a, &a, None);
+                let _ = self.bind(&a, None);
                 let _ = crate::settings::update(|s| {
                     s.shortcuts.remove(&a);
                 });
             }
         }
-        let stored = self.bind(action, friendly, keys)?;
+        let stored = self.bind(action, keys)?;
         crate::settings::update(|s| match &stored {
             Some(k) => {
                 s.shortcuts.insert(action.into(), k.clone());
@@ -280,8 +296,8 @@ impl Shortcuts {
 
     /// Release the keys while the app is not running (KDE keeps the bindings).
     pub fn deactivate(&self) {
-        for (action, friendly) in self.registered.lock().expect("lock").iter() {
-            let _ = self.call("setInactive", &(action_id(action, friendly),));
+        for action in self.registered.lock().expect("lock").keys() {
+            let _ = self.call("setInactive", &(action_id(action),));
         }
     }
 }
@@ -304,6 +320,12 @@ mod tests {
         assert_eq!(parse_keys("F1"), Some(0x0100_0030));
         assert_eq!(parse_keys("Meta+Shift+Down"), Some(0x1000_0000 | 0x0200_0000 | 0x0100_0015));
         assert_eq!(parse_keys("ctrl+alt+m"), parse_keys("Ctrl+Alt+M"));
+    }
+
+    #[test]
+    fn names_for_system_settings() {
+        assert_eq!(describe("volume-up strip:3"), "Volume up strip:3");
+        assert_eq!(describe("toggle-mute-mics"), "Mute all microphones");
     }
 
     #[test]

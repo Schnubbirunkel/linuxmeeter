@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod backup;
 mod control;
 mod notify;
 mod settings;
@@ -40,11 +41,72 @@ fn get_shortcuts(data: tauri::State<AppData>) -> ShortcutInfo {
     }
 }
 
+/// Save everything (all profiles + app settings) to a file the user picks.
+/// Returns the path, or None if the dialog was cancelled.
+#[tauri::command]
+async fn export_settings(app: tauri::AppHandle, data: tauri::State<'_, AppData>) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let state = data.state.read().expect("state lock").clone().ok_or("mixer is still starting")?;
+    let text = serde_json::to_string_pretty(&backup::collect(&state)?).map_err(|e| e.to_string())?;
+    let Some(path) = app
+        .dialog()
+        .file()
+        .set_title("Save linuxmeeter settings")
+        .set_file_name("linuxmeeter-settings.json")
+        .add_filter("linuxmeeter settings", &["json"])
+        .blocking_save_file()
+    else {
+        return Ok(None);
+    };
+    let path = path.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&path, text).map_err(|e| format!("could not write {}: {e}", path.display()))?;
+    Ok(Some(path.display().to_string()))
+}
+
+/// Restore a file written by `export_settings`: profiles, active profile,
+/// notifications and shortcuts. Returns the restored profile names.
+#[tauri::command]
+async fn import_settings(app: tauri::AppHandle, data: tauri::State<'_, AppData>) -> Result<Option<Vec<String>>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(path) = app
+        .dialog()
+        .file()
+        .set_title("Load linuxmeeter settings")
+        .add_filter("linuxmeeter settings", &["json"])
+        .blocking_pick_file()
+    else {
+        return Ok(None);
+    };
+    let path = path.into_path().map_err(|e| e.to_string())?;
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
+    let b = backup::parse(&text)?;
+
+    // App settings first, then re-bind shortcuts to match them.
+    let old = settings::get().shortcuts;
+    settings::update(|s| *s = b.app.clone())?;
+    data.notifier.enabled.store(b.app.notifications, std::sync::atomic::Ordering::Relaxed);
+    if let Some(sc) = data.shortcuts.get() {
+        for action in old.keys().filter(|a| !b.app.shortcuts.contains_key(*a)) {
+            let _ = sc.set(action, None);
+        }
+        for (action, keys) in &b.app.shortcuts {
+            if let Err(e) = sc.set(action, Some(keys)) {
+                tracing::warn!("shortcut {action} ({keys}): {e}");
+            }
+        }
+    }
+
+    let names: Vec<String> = b.profiles.keys().cloned().collect();
+    send(&data, EngineCommand::ImportProfiles { files: b.profiles.into_iter().collect(), active: b.active_profile })?;
+    let _ = app.emit("shortcuts_changed", ());
+    Ok(Some(names))
+}
+
 /// Bind `keys` ("Ctrl+Alt+M", None = remove) to a ctl `action`; returns the stored keys.
 #[tauri::command]
-fn set_shortcut(data: tauri::State<AppData>, action: String, name: String, keys: Option<String>) -> Result<Option<String>, String> {
+fn set_shortcut(data: tauri::State<AppData>, action: String, keys: Option<String>) -> Result<Option<String>, String> {
     let sc = data.shortcuts.get().ok_or("shortcuts are still starting")?;
-    sc.set(&action, &name, keys.as_deref())
+    sc.set(&action, keys.as_deref())
 }
 
 fn send(data: &tauri::State<AppData>, cmd: EngineCommand) -> Result<(), String> {
@@ -436,6 +498,7 @@ fn main() {
     let exit_shortcuts = shortcut_cell.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppData {
             cmd_tx: engine.cmd_tx.clone(),
             state: state.clone(),
@@ -470,6 +533,8 @@ fn main() {
             get_exe_path,
             get_shortcuts,
             set_shortcut,
+            export_settings,
+            import_settings,
         ])
         .setup(move |app| {
             let ctl = Ctl {

@@ -8,6 +8,7 @@ url="https://github.com/dslapelis/linuxmeeter"
 license=(GPL-3.0-or-later)
 depends=(
   pipewire
+  pipewire-audio
   lsp-plugins-lv2
   webkit2gtk-4.1
   gtk3

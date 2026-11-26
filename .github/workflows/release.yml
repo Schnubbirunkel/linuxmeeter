@@ -20,7 +20,7 @@ jobs:
       - name: Install build dependencies
         run: |
           pacman -Syu --noconfirm --needed git rust nodejs pnpm pkgconf clang \
-            pipewire lsp-plugins-lv2 webkit2gtk-4.1 gtk3 libayatana-appindicator
+            pipewire pipewire-audio lsp-plugins-lv2 webkit2gtk-4.1 gtk3 libayatana-appindicator
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -75,4 +75,4 @@ jobs:
             - **Global shortcuts** via `linuxmeeter ctl toggle-mute|volume-up|volume-down <channel>`, `ctl profile-next`, … Settings (gear icon) lists the command for every strip and bus.
 
             Arch: `sudo pacman -U linuxmeeter-*.pkg.tar.zst`
-            Needs PipeWire with WirePlumber, `lsp-plugins-lv2`, `webkit2gtk-4.1`, `gtk3`, `libayatana-appindicator`.
+            Needs PipeWire (`pipewire-audio`) with WirePlumber, `lsp-plugins-lv2`, `webkit2gtk-4.1`, `gtk3`, `libayatana-appindicator`.
