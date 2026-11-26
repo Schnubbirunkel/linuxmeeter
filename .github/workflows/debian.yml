@@ -1,0 +1,31 @@
+name: Debian
+
+# Does linuxmeeter run on Debian? Real PipeWire + LSP plugins in a Debian
+# container, the same audio integration tests as on Arch.
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  audio:
+    runs-on: ubuntu-latest
+    container: debian:trixie
+    steps:
+      - name: Install dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            ca-certificates curl git build-essential clang libclang-dev pkg-config \
+            pipewire pipewire-bin libpipewire-0.3-dev libspa-0.2-dev libspa-0.2-modules \
+            lsp-plugins-lv2 liblilv-0-0
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+      - uses: actions/checkout@v4
+      - name: Diagnostics
+        run: |
+          dpkg -l | grep -E "pipewire|libspa|lilv|lsp-plugins" | awk '{print $2, $3}'
+          find / -path /proc -prune -o \( -name "*filter-graph*" -o -name "*filter-chain*.so" \) -print 2>/dev/null | head -20
+      - name: Audio integration tests
+        run: |
+          . "$HOME/.cargo/env"
+          ./scripts/with-test-daemon.sh cargo test -p lm-engine --test audio -- --ignored --test-threads=1
