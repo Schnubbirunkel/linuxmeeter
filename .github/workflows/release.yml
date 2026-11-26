@@ -1,9 +1,12 @@
 name: Release
 
-# Builds an Arch package + plain tarball and publishes them as a GitHub
-# release. A push to main whose version (pkgver in packaging/release/PKGBUILD)
-# has no release yet creates tag + release; a later push of the same version,
-# or pushing a tag, updates that release's files. Notes: packaging/release/NOTES.md.
+# Builds an Arch package + plain tarball.
+#
+# Every push to main is published to the rolling "edge" pre-release (fixed
+# file names plus linuxmeeter-edge-arch.sha, which the in-app updater reads),
+# with package version <pkgver>.r<commit count> so each build is newer than
+# the last. A push to main whose pkgver (packaging/release/PKGBUILD) has no
+# release yet also creates that release; notes: packaging/release/NOTES.md.
 on:
   push:
     tags: ["v*", "[0-9]*"]
@@ -34,20 +37,26 @@ jobs:
           else
             V=$(sed -n 's/^pkgver=//p' packaging/release/PKGBUILD)
             TAG=$(git tag -l "v$V" "$V" | head -1)
+            # Already released from an earlier commit: this push only goes to edge.
+            if [ -n "$TAG" ] && [ "$(git rev-list -n1 "$TAG")" != "$GITHUB_SHA" ]; then TAG=""
             # A new version on main: release it.
-            if [ -z "$TAG" ] && [ "$GITHUB_REF" = refs/heads/main ]; then TAG="$V"; fi
+            elif [ -z "$TAG" ] && [ "$GITHUB_REF" = refs/heads/main ]; then TAG="$V"; fi
           fi
           echo "name=$TAG" >> "$GITHUB_OUTPUT"
           echo "release tag: ${TAG:-none (artifacts only)}"
+          V=$(sed -n 's/^pkgver=//p' packaging/release/PKGBUILD)
+          if [ "$GITHUB_REF_TYPE" = tag ]; then BUILD="${GITHUB_REF_NAME#v}"; else BUILD="$V.r$(git rev-list --count HEAD)"; fi
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          echo "build version: $BUILD"
       - name: Build package
         run: |
           useradd -m builder
           chown -R builder "$GITHUB_WORKSPACE"
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
-            sed -i "s/^pkgver=.*/pkgver=${GITHUB_REF_NAME#v}/" packaging/release/PKGBUILD
-          fi
+          sed -i "s/^pkgver=.*/pkgver=${{ steps.tag.outputs.build }}/" packaging/release/PKGBUILD
           cd packaging/release
-          sudo -u builder env HOME=/home/builder makepkg --nodeps --noconfirm
+          sudo -u builder env HOME=/home/builder \
+            LM_BUILD_SHA="$GITHUB_SHA" LM_BUILD_VERSION="${{ steps.tag.outputs.build }}" \
+            makepkg --nodeps --noconfirm
       - name: Tarball
         run: |
           VERSION=$(sed -n 's/^pkgver=//p' packaging/release/PKGBUILD)
@@ -72,3 +81,20 @@ jobs:
           name: linuxmeeter ${{ steps.tag.outputs.name }}
           target_commitish: ${{ github.sha }}
           body_path: packaging/release/NOTES.md
+      - name: Edge files
+        if: github.ref == 'refs/heads/main'
+        run: |
+          cp packaging/release/linuxmeeter-*.pkg.tar.zst linuxmeeter-edge-x86_64.pkg.tar.zst
+          echo "$GITHUB_SHA ${{ steps.tag.outputs.build }}" > linuxmeeter-edge-arch.sha
+          printf 'Rolling build of the newest commit on main, for the in-app updater (Settings → Updates → "every push to main").\n\nNot a release: use at your own risk; the regular releases are below.\n' > edge-notes.md
+      - uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: edge
+          name: linuxmeeter edge (newest main)
+          prerelease: true
+          make_latest: false
+          body_path: edge-notes.md
+          files: |
+            linuxmeeter-edge-x86_64.pkg.tar.zst
+            linuxmeeter-edge-arch.sha

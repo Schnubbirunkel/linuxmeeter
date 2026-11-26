@@ -27,7 +27,21 @@ jobs:
           npm install -g pnpm@10
           curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Version
+        id: ver
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          V=$(sed -n 's/^pkgver=//p' packaging/release/PKGBUILD)
+          N=$(git rev-list --count HEAD)
+          echo "release=$V" >> "$GITHUB_OUTPUT"
+          echo "build=$V.r$N" >> "$GITHUB_OUTPUT"
+          echo "deb=$V+r$N" >> "$GITHUB_OUTPUT"
       - name: Build
+        env:
+          LM_BUILD_SHA: ${{ github.sha }}
+          LM_BUILD_VERSION: ${{ steps.ver.outputs.build }}
         run: |
           . "$HOME/.cargo/env"
           pnpm install --frozen-lockfile --config.strict-dep-builds=false
@@ -35,10 +49,9 @@ jobs:
       - name: Package
         id: deb
         run: |
-          V=$(sed -n 's/^pkgver=//p' packaging/release/PKGBUILD)
-          DEB=$(packaging/debian/build-deb.sh "$V" | tail -1)
+          DEB=$(packaging/debian/build-deb.sh "${{ steps.ver.outputs.deb }}" | tail -1)
           echo "path=$DEB" >> "$GITHUB_OUTPUT"
-          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "version=${{ steps.ver.outputs.release }}" >> "$GITHUB_OUTPUT"
           dpkg-deb -I "$DEB"
       - name: Install with apt (checks the dependencies resolve)
         run: DEBIAN_FRONTEND=noninteractive apt-get install -y "${{ steps.deb.outputs.path }}" xvfb dbus python3
@@ -48,9 +61,35 @@ jobs:
         with:
           name: linuxmeeter-deb
           path: ${{ steps.deb.outputs.path }}
-      - name: Attach to the release
+      - name: Is this version released?
+        id: rel
         if: github.ref == 'refs/heads/main'
+        run: |
+          # The Release workflow creates the release for a new version; attach
+          # to it only if it exists or is being created for this commit.
+          if git tag -l "${{ steps.deb.outputs.version }}" | grep -q . ; then
+            [ "$(git rev-list -n1 "${{ steps.deb.outputs.version }}")" = "$GITHUB_SHA" ] && echo "attach=yes" >> "$GITHUB_OUTPUT" || true
+          else
+            echo "attach=yes" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Attach to the release
+        if: steps.rel.outputs.attach == 'yes'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.deb.outputs.version }}
           files: ${{ steps.deb.outputs.path }}
+      - name: Edge files
+        if: github.ref == 'refs/heads/main'
+        run: |
+          cp "${{ steps.deb.outputs.path }}" linuxmeeter-edge_amd64.deb
+          echo "$GITHUB_SHA ${{ steps.ver.outputs.build }}" > linuxmeeter-edge-debian.sha
+      - uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main'
+        with:
+          tag_name: edge
+          name: linuxmeeter edge (newest main)
+          prerelease: true
+          make_latest: false
+          files: |
+            linuxmeeter-edge_amd64.deb
+            linuxmeeter-edge-debian.sha
