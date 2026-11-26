@@ -24,8 +24,12 @@ jobs:
       - name: Diagnostics
         run: |
           dpkg -l | grep -E "pipewire|libspa|lilv|lsp-plugins" | awk '{print $2, $3}'
-          find / -path /proc -prune -o \( -name "*filter-graph*" -o -name "*filter-chain*.so" \) -print 2>/dev/null | head -20
+          ls /usr/lib/x86_64-linux-gnu/spa-0.2/filter-graph/ || true
+          apt-cache search pipewire | sort
+          apt-cache search lv2 | grep -i -E "pipewire|spa|filter" || true
+          ldd /usr/lib/x86_64-linux-gnu/spa-0.2/filter-graph/libspa-filter-graph.so | grep -i -E "lilv|lv2" || echo "filter-graph does not link lilv"
       - name: Audio integration tests
         run: |
           . "$HOME/.cargo/env"
-          ./scripts/with-test-daemon.sh cargo test -p lm-engine --test audio -- --ignored --test-threads=1
+          export RUST_BACKTRACE=1 PIPEWIRE_DEBUG=2
+          ./scripts/with-test-daemon.sh cargo test -p lm-engine --test audio -- --ignored --test-threads=1 --nocapture 2>&1 | tail -150
