@@ -1,9 +1,12 @@
 name: Release
 
-# Push a tag like v0.2.0 -> Arch package + plain tarball attached to a GitHub release.
+# Builds an Arch package + plain tarball. On a tag (v0.2.0 or 0.2.0), or on a
+# push to main whose version already has a tag, they are attached to that
+# tag's GitHub release.
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*", "[0-9]*"]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -19,12 +22,27 @@ jobs:
           pacman -Syu --noconfirm --needed git rust nodejs pnpm pkgconf clang \
             pipewire lsp-plugins-lv2 webkit2gtk-4.1 gtk3 libayatana-appindicator
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Pick release tag
+        id: tag
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            TAG="$GITHUB_REF_NAME"
+          else
+            V=$(sed -n 's/^pkgver=//p' packaging/release/PKGBUILD)
+            TAG=$(git tag -l "v$V" "$V" | head -1)
+          fi
+          echo "name=$TAG" >> "$GITHUB_OUTPUT"
+          echo "release tag: ${TAG:-none (artifacts only)}"
       - name: Build package
         run: |
           useradd -m builder
           chown -R builder "$GITHUB_WORKSPACE"
-          VERSION="${GITHUB_REF_NAME#v}"
-          [ "$GITHUB_REF_TYPE" = tag ] && sed -i "s/^pkgver=.*/pkgver=$VERSION/" packaging/release/PKGBUILD
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            sed -i "s/^pkgver=.*/pkgver=${GITHUB_REF_NAME#v}/" packaging/release/PKGBUILD
+          fi
           cd packaging/release
           sudo -u builder env HOME=/home/builder makepkg --nodeps --noconfirm
       - name: Tarball
@@ -35,9 +53,16 @@ jobs:
           bsdtar -xf packaging/release/linuxmeeter-*.pkg.tar.zst -C $D usr
           cp README.md LICENSE $D/
           tar czf $D.tar.gz $D
-      - uses: softprops/action-gh-release@v2
-        if: github.ref_type == 'tag'
+      - uses: actions/upload-artifact@v4
         with:
+          name: linuxmeeter
+          path: |
+            packaging/release/linuxmeeter-*.pkg.tar.zst
+            linuxmeeter-*-x86_64.tar.gz
+      - uses: softprops/action-gh-release@v2
+        if: steps.tag.outputs.name != ''
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
           files: |
             packaging/release/linuxmeeter-*.pkg.tar.zst
             linuxmeeter-*-x86_64.tar.gz
