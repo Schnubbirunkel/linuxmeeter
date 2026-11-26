@@ -635,3 +635,37 @@ fn eq_bands_in_every_slot_range_shape_the_signal() {
     let cut = rig.measure(&strip_meter, 400)[0];
     assert!(flat - cut > 20.0, "low cut barely changed the level: {flat:.1} -> {cut:.1} dBFS");
 }
+
+/// The bus limiter: below its threshold it must not change the level (no
+/// "gain boost"); above it, it holds the peak at the threshold; switched off,
+/// it does nothing at all.
+#[test]
+#[ignore = "requires a PipeWire daemon; run with `make test-audio`"]
+fn bus_limiter_is_transparent_below_limits_above_and_off_when_disabled() {
+    let (rig, _strip_meter, bus_meter, _s, b) = full_chain(0.5); // -6 dBFS
+    let set = |enabled: f32, gain: f32| {
+        rig.set_props(
+            &b.in_node(),
+            &params::filter_params(&[
+                ("lim:enabled", enabled),
+                ("lim:boost", 0.0),
+                ("lim:th", params::db_to_linear(-1.0)),
+                ("lim:rt", 50.0),
+            ]),
+        );
+        rig.set_props(&b.in_node(), &params::channel_volumes(gain));
+        rig.settle(500);
+    };
+
+    set(1.0, 1.0);
+    let below = rig.measure(&bus_meter, 500)[0];
+    assert!((below + 6.02).abs() < 0.5, "limiter below threshold changed the level: {below:.2} dBFS (boost still on?)");
+
+    set(1.0, params::db_to_linear(12.0)); // +6 dBFS into a -1 dB limiter
+    let limited = rig.measure(&bus_meter, 500)[0];
+    assert!(limited < -0.5 && limited > -3.0, "limiter did not hold -1 dBFS: {limited:.2} dBFS");
+
+    set(0.0, params::db_to_linear(3.0)); // -3 dBFS, limiter off
+    let off = rig.measure(&bus_meter, 500)[0];
+    assert!((off + 3.0).abs() < 0.5, "disabled limiter still acts: {off:.2} dBFS");
+}

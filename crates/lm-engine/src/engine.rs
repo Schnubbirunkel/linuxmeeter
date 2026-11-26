@@ -827,6 +827,9 @@ impl Engine {
         let l = &bus.limiter;
         let pairs: Vec<(&str, f32)> = vec![
             ("lim:enabled", l.enabled as u32 as f32),
+            // LSP's limiter otherwise lifts its output by the threshold's
+            // distance from 0 dB ("gain boost"); a bus should stay at unity.
+            ("lim:boost", 0.0),
             ("lim:th", params::db_to_linear(l.threshold_db)),
             ("lim:rt", l.release_ms),
         ];

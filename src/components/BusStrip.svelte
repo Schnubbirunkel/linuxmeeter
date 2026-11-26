@@ -65,9 +65,18 @@
       value={bus.limiter.thresholdDb}
       defaultValue={-1}
       enabled={bus.limiter.enabled}
-      onchange={(v) => mixer.setLimiterParams(bus.id, { ...bus.limiter, thresholdDb: v, enabled: true })}
+      onchange={(v) => mixer.setLimiterParams(bus.id, { ...bus.limiter, thresholdDb: v })}
       onenabledchange={(on) => mixer.setLimiterParams(bus.id, { ...bus.limiter, enabled: on })}
     />
+    <button
+      class="limbtn"
+      class:active={bus.limiter.enabled}
+      aria-pressed={bus.limiter.enabled}
+      title={bus.limiter.enabled ? "Limiter on — click to switch it off completely" : "Limiter off — click to switch it on"}
+      onclick={() => mixer.setLimiterParams(bus.id, { ...bus.limiter, enabled: !bus.limiter.enabled })}
+    >
+      {bus.limiter.enabled ? "ON" : "OFF"}
+    </button>
   </div>
   <GrMeter
     key={`bp:${bus.id}`}
@@ -113,5 +122,28 @@
     display: flex;
     justify-content: center;
     gap: 8px;
+  }
+  .knobs {
+    align-items: center;
+  }
+  .limbtn {
+    width: 30px;
+    height: 20px;
+    font: 500 9px var(--mono);
+    letter-spacing: 0.06em;
+    background: var(--bg-3);
+    color: var(--text-3);
+    border: 1px solid var(--border-0);
+    border-radius: 2px;
+    box-shadow: inset 0 1px 0 var(--hl-top);
+  }
+  .limbtn:hover {
+    background: var(--bg-4);
+    color: var(--text-2);
+  }
+  .limbtn.active {
+    background: var(--accent-glow);
+    color: var(--accent);
+    border-color: var(--accent);
   }
 </style>
