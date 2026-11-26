@@ -1,0 +1,53 @@
+name: Release
+
+# Push a tag like v0.2.0 -> Arch package + plain tarball attached to a GitHub release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  arch:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed git rust nodejs pnpm pkgconf clang \
+            pipewire lsp-plugins-lv2 webkit2gtk-4.1 gtk3 libayatana-appindicator
+      - uses: actions/checkout@v4
+      - name: Build package
+        run: |
+          useradd -m builder
+          chown -R builder "$GITHUB_WORKSPACE"
+          VERSION="${GITHUB_REF_NAME#v}"
+          [ "$GITHUB_REF_TYPE" = tag ] && sed -i "s/^pkgver=.*/pkgver=$VERSION/" packaging/release/PKGBUILD
+          cd packaging/release
+          sudo -u builder env HOME=/home/builder makepkg --nodeps --noconfirm
+      - name: Tarball
+        run: |
+          VERSION=$(sed -n 's/^pkgver=//p' packaging/release/PKGBUILD)
+          D=linuxmeeter-$VERSION-x86_64
+          mkdir -p $D
+          bsdtar -xf packaging/release/linuxmeeter-*.pkg.tar.zst -C $D usr
+          cp README.md LICENSE $D/
+          tar czf $D.tar.gz $D
+      - uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
+        with:
+          files: |
+            packaging/release/linuxmeeter-*.pkg.tar.zst
+            linuxmeeter-*-x86_64.tar.gz
+          body: |
+            Fork of [dslapelis/linuxmeeter](https://github.com/dslapelis/linuxmeeter) with:
+
+            - **Rename strips and buses** (double-click the name). Other programs see the new device name; streams using it are moved back after the rename.
+            - **Profile switching**: switch, save as new, delete from the top bar.
+            - **Desktop notifications** for profile switches and shortcut actions, also while the window is hidden.
+            - **Global shortcuts** via `linuxmeeter ctl toggle-mute|volume-up|volume-down <channel>`, `ctl profile-next`, … Settings (gear icon) lists the command for every strip and bus.
+
+            Arch: `sudo pacman -U linuxmeeter-*.pkg.tar.zst`
+            Needs PipeWire with WirePlumber, `lsp-plugins-lv2`, `webkit2gtk-4.1`, `gtk3`, `libayatana-appindicator`.
