@@ -14,17 +14,24 @@ backups.
 
 ## Install
 
-**Arch Linux**: download `linuxmeeter-*.pkg.tar.zst` from the
-[Releases page](https://github.com/Schnubbirunkel/linuxmeeter/releases), then
+Download the package for your system from the
+[Releases page](https://github.com/Schnubbirunkel/linuxmeeter/releases).
+
+**Arch Linux** — `linuxmeeter-*.pkg.tar.zst`:
 
 ```sh
 sudo pacman -U linuxmeeter-*.pkg.tar.zst
 ```
 
-pacman pulls in what it needs (PipeWire with `pipewire-audio`, WirePlumber,
-`lsp-plugins-lv2`, `webkit2gtk-4.1`, `gtk3`, `libayatana-appindicator`).
+**Debian 13 (trixie)** — `linuxmeeter_*_amd64.deb`:
 
-Other distributions: build from source (below).
+```sh
+sudo apt install ./linuxmeeter_*_amd64.deb
+```
+
+Both pull in what they need (PipeWire, WirePlumber, `lsp-plugins-lv2`,
+WebKitGTK 4.1, GTK 3, the Ayatana tray library). Other distributions: build
+from source (below).
 
 ## Features
 
@@ -79,6 +86,9 @@ Other distributions: build from source (below).
   they work everywhere, also with the window hidden, and show up in System
   Settings → Shortcuts. On other desktops, bind the `linuxmeeter ctl …`
   commands Settings lists to keys in the desktop's own shortcut settings
+- **Microphone warning tone** — two short notes on your speakers when the
+  microphones are muted (falling) or go live (rising), however you did it;
+  played straight to the hardware, never into a virtual mic (can be turned off)
 - **Desktop notifications** — profile switches and shortcut actions show a
   notification even while the window is hidden (can be turned off)
 - **Tray menu** — mute all microphones, switch profile, show the mixer;
@@ -97,8 +107,8 @@ Other distributions: build from source (below).
 
 ## Requirements
 
-- PipeWire ≥ 1.0 with WirePlumber (on Arch also `pipewire-audio`, which holds
-  the filter-chain LV2 support)
+- PipeWire ≥ 1.0 with WirePlumber and filter-chain LV2 support (Arch:
+  `pipewire-audio`; Debian: `libspa-0.2-modules`)
 - `lsp-plugins-lv2` (gate/compressor/EQ/limiter DSP)
 - `webkit2gtk-4.1`, `gtk3`, `libayatana-appindicator` (UI shell + tray)
 - For in-app global shortcuts: KDE Plasma (its `kglobalaccel` service)
@@ -123,8 +133,11 @@ Arch users: see `packaging/PKGBUILD` (git build) or `packaging/release/PKGBUILD`
 - `cargo run --example graph -p lm-engine` drives the full audio topology
   from a REPL without the UI.
 - CI runs the unit tests and `make test-audio` (real PipeWire, real LSP
-  plugins) in an Arch container on every push; a push to `main` with a new
-  version in `packaging/release/PKGBUILD` publishes a release.
+  plugins) in an Arch container on every push, and on Debian trixie builds
+  the `.deb` (`packaging/debian/build-deb.sh`), installs it with apt and
+  smoke-tests it with WirePlumber (`packaging/debian/smoke-test.sh`). A push
+  to `main` with a new version in `packaging/release/PKGBUILD` publishes a
+  release with both packages.
 
 ## License
 
