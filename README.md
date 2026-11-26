@@ -30,6 +30,17 @@ OBS, or any recorder can use.
 - **Profiles** — everything persists to `~/.config/linuxmeeter/` (TOML,
   hand-editable) and restores on launch; tray icon + close-to-tray +
   optional autostart keep your devices alive from login
+- **Add and remove strips and buses** — "+" beside Hardware / Virtual /
+  Buses, × in a strip's header; up to 16 strips, buses A1–A4 (outputs) and
+  B1–B3 (virtual mics)
+- **EQ with up to 12 points** per strip (double-click the curve to add one),
+  peak, shelves, low cut and high cut
+- **Gain-reduction displays** — under every bus limiter, and live in the
+  dynamics panel (input dot on the compressor curve, compressor reduction,
+  gate open/closed)
+- **Backup** — export / import every profile and setting as one file
+  (Settings, or `linuxmeeter ctl export|import <file>`)
+- **Tray menu** — mute all microphones, switch profile
 - **Rename anything** — double-click a strip or bus name. The new name is
   also what other programs show for the virtual device (Discord, OBS, your
   desktop's volume control); programs using it are moved back after the
@@ -39,11 +50,11 @@ OBS, or any recorder can use.
   changes levels and routes, so audio keeps flowing
 - **Desktop notifications** — profile switches and shortcut actions show a
   notification even while the window is hidden (toggle in Settings)
-- **Global shortcuts** — `linuxmeeter ctl toggle-mute|volume-up|volume-down
-  <channel>`, `ctl profile-next` and more control the running mixer; bind
-  them to keys in your desktop's shortcut settings. Settings (gear icon)
-  lists the exact command for every strip and bus. `linuxmeeter ctl help`
-  for everything
+- **Global shortcuts** — set keys in Settings (gear icon) for mute and ±5 %
+  per strip/bus, mute all mics and next/previous profile; on KDE Plasma they
+  work everywhere, also with the window hidden. Elsewhere, bind the
+  `linuxmeeter ctl …` commands Settings lists to keys in your desktop's
+  shortcut settings (`linuxmeeter ctl help` for everything)
 - **Clean by design** — all virtual devices live in-process and vanish
   completely when the app exits; WirePlumber is never left managing our
   volumes

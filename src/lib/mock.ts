@@ -126,21 +126,27 @@ function startSim(): void {
 
     const anySolo = state.strips.some((s) => s.solo);
     const levels = new Map<number, number>();
+    const stripsPre: number[][] = [];
     const stripFrames: number[][] = state.strips.map((s) => {
       const raw = simLevel(sims.get(s.id)!, t, dt);
+      stripsPre.push(s.online ? [raw + 0.5, raw - 0.5, raw - 3, raw - 3] : [-90, -90, -90, -90]);
       const audible = !s.mute && (!anySolo || s.solo) && s.online;
       const lvl = audible && s.gainDb !== -Infinity ? raw + s.gainDb : -90;
       levels.set(s.id, lvl);
       const jitter = () => Math.random() * 1.2;
       return [lvl + 0.6 + jitter(), lvl - 0.6 + jitter(), lvl - 2.5, lvl - 2.8];
     });
+    const busesPre: number[][] = [];
     const busFrames: number[][] = state.buses.map((b) => {
       const inputs = state.strips.filter((s) => s.routes[b.id]).map((s) => levels.get(s.id)!);
-      const sum = b.mute ? -90 : powerSum(inputs) + b.gainDb;
-      return [sum + 0.4, sum - 0.4, sum - 2.5, sum - 2.7];
+      const pre = powerSum(inputs);
+      busesPre.push([pre + 0.4, pre - 0.4, pre - 2.5, pre - 2.7]);
+      // The limiter holds the output at its threshold.
+      const out = b.mute ? -90 : b.limiter.enabled ? Math.min(pre + b.gainDb, b.limiter.thresholdDb) : pre + b.gainDb;
+      return [out + 0.4, out - 0.4, out - 2.5, out - 2.7];
     });
 
-    const frame: MeterFrame = { seq: seq++, strips: stripFrames, buses: busFrames };
+    const frame: MeterFrame = { seq: seq++, strips: stripFrames, buses: busFrames, stripsPre, busesPre };
     for (const cb of meterSubs) cb(frame);
   }, 33);
 }
@@ -290,7 +296,9 @@ export const mockIpc: Ipc = {
     return Promise.resolve();
   },
   getShortcuts: () => Promise.resolve({ available: true, bindings: { ...mockShortcuts } }),
-  setShortcut: (action, _name, keys) => {
+  exportSettings: () => Promise.resolve("/home/you/linuxmeeter-settings.json"),
+  importSettings: () => Promise.resolve([...state.profiles]),
+  setShortcut: (action, keys) => {
     for (const [a, k] of Object.entries(mockShortcuts)) if (keys && k === keys) delete mockShortcuts[a];
     if (keys) mockShortcuts[action] = keys;
     else delete mockShortcuts[action];

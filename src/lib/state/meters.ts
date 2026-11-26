@@ -114,6 +114,16 @@ export function ingestFrame(frame: MeterFrame, stripIds: number[], busIds: strin
     if (id === undefined) return;
     if (applyTargets(getMeter(`b:${id}` as MeterKey), values)) moved = true;
   });
+  frame.stripsPre?.forEach((values, i) => {
+    const id = stripIds[i];
+    if (id === undefined) return;
+    if (applyTargets(getMeter(`sp:${id}`), values)) moved = true;
+  });
+  frame.busesPre?.forEach((values, i) => {
+    const id = busIds[i];
+    if (id === undefined) return;
+    if (applyTargets(getMeter(`bp:${id}` as MeterKey), values)) moved = true;
+  });
   // Targets that did not move cannot make the display move, so a steady or
   // silent signal leaves a stopped loop stopped.
   if (moved) startLoop();

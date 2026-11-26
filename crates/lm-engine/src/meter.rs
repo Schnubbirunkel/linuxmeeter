@@ -14,7 +14,7 @@ use pipewire::core::CoreRc;
 use pipewire::properties::properties;
 use pipewire::stream::{StreamFlags, StreamListener, StreamRc};
 
-const SILENT_DB: f32 = -90.0;
+pub const SILENT_DB: f32 = -90.0;
 
 /// Lock-free accumulator shared between the process callback and the drain timer.
 #[derive(Default)]

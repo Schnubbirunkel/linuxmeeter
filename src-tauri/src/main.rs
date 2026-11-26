@@ -46,8 +46,6 @@ fn get_shortcuts(data: tauri::State<AppData>) -> ShortcutInfo {
 #[tauri::command]
 async fn export_settings(app: tauri::AppHandle, data: tauri::State<'_, AppData>) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
-    let state = data.state.read().expect("state lock").clone().ok_or("mixer is still starting")?;
-    let text = serde_json::to_string_pretty(&backup::collect(&state)?).map_err(|e| e.to_string())?;
     let Some(path) = app
         .dialog()
         .file()
@@ -59,8 +57,38 @@ async fn export_settings(app: tauri::AppHandle, data: tauri::State<'_, AppData>)
         return Ok(None);
     };
     let path = path.into_path().map_err(|e| e.to_string())?;
-    std::fs::write(&path, text).map_err(|e| format!("could not write {}: {e}", path.display()))?;
+    export_to(&data, &path)?;
     Ok(Some(path.display().to_string()))
+}
+
+fn export_to(data: &AppData, path: &std::path::Path) -> Result<(), String> {
+    let state = data.state.read().expect("state lock").clone().ok_or("mixer is still starting")?;
+    let text = serde_json::to_string_pretty(&backup::collect(&state)?).map_err(|e| e.to_string())?;
+    std::fs::write(path, text).map_err(|e| format!("could not write {}: {e}", path.display()))
+}
+
+/// Restore a backup's text: app settings and shortcuts, then the profiles.
+fn import_text(app: &tauri::AppHandle, data: &AppData, text: &str) -> Result<Vec<String>, String> {
+    let b = backup::parse(text)?;
+    let old = settings::get().shortcuts;
+    settings::update(|s| *s = b.app.clone())?;
+    data.notifier.enabled.store(b.app.notifications, std::sync::atomic::Ordering::Relaxed);
+    if let Some(sc) = data.shortcuts.get() {
+        for action in old.keys().filter(|a| !b.app.shortcuts.contains_key(*a)) {
+            let _ = sc.set(action, None);
+        }
+        for (action, keys) in &b.app.shortcuts {
+            if let Err(e) = sc.set(action, Some(keys)) {
+                tracing::warn!("shortcut {action} ({keys}): {e}");
+            }
+        }
+    }
+    let names: Vec<String> = b.profiles.keys().cloned().collect();
+    data.cmd_tx
+        .send(EngineCommand::ImportProfiles { files: b.profiles.into_iter().collect(), active: b.active_profile })
+        .map_err(|_| "engine unavailable".to_string())?;
+    let _ = app.emit("shortcuts_changed", ());
+    Ok(names)
 }
 
 /// Restore a file written by `export_settings`: profiles, active profile,
@@ -79,27 +107,7 @@ async fn import_settings(app: tauri::AppHandle, data: tauri::State<'_, AppData>)
     };
     let path = path.into_path().map_err(|e| e.to_string())?;
     let text = std::fs::read_to_string(&path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
-    let b = backup::parse(&text)?;
-
-    // App settings first, then re-bind shortcuts to match them.
-    let old = settings::get().shortcuts;
-    settings::update(|s| *s = b.app.clone())?;
-    data.notifier.enabled.store(b.app.notifications, std::sync::atomic::Ordering::Relaxed);
-    if let Some(sc) = data.shortcuts.get() {
-        for action in old.keys().filter(|a| !b.app.shortcuts.contains_key(*a)) {
-            let _ = sc.set(action, None);
-        }
-        for (action, keys) in &b.app.shortcuts {
-            if let Err(e) = sc.set(action, Some(keys)) {
-                tracing::warn!("shortcut {action} ({keys}): {e}");
-            }
-        }
-    }
-
-    let names: Vec<String> = b.profiles.keys().cloned().collect();
-    send(&data, EngineCommand::ImportProfiles { files: b.profiles.into_iter().collect(), active: b.active_profile })?;
-    let _ = app.emit("shortcuts_changed", ());
-    Ok(Some(names))
+    import_text(&app, &data, &text).map(Some)
 }
 
 /// Bind `keys` ("Ctrl+Alt+M", None = remove) to a ctl `action`; returns the stored keys.
@@ -289,6 +297,20 @@ impl Ctl {
                 "ok: shown".into()
             }
             Ok(control::Action::Reply(text)) => format!("ok: {text}"),
+            Ok(control::Action::Export(path)) => {
+                let data = self.handle.state::<AppData>();
+                match export_to(&data, std::path::Path::new(&path)) {
+                    Ok(()) => format!("ok: saved to {path}"),
+                    Err(e) => format!("error: {e}"),
+                }
+            }
+            Ok(control::Action::Import(path)) => {
+                let data = self.handle.state::<AppData>();
+                match std::fs::read_to_string(&path).map_err(|e| format!("could not read {path}: {e}")).and_then(|t| import_text(&self.handle, &data, &t)) {
+                    Ok(names) => format!("ok: restored {}", names.join(", ")),
+                    Err(e) => format!("error: {e}"),
+                }
+            }
             Err(e) => format!("error: {e}"),
         }
     }

@@ -8,6 +8,8 @@
   import DbReadout from "./DbReadout.svelte";
   import Knob from "./Knob.svelte";
   import MuteSoloButtons from "./MuteSoloButtons.svelte";
+  import GrMeter from "./GrMeter.svelte";
+  import { limiterReduction } from "../lib/utils/dynamics";
 
   interface Props {
     bus: BusState;
@@ -67,6 +69,12 @@
       onenabledchange={(on) => mixer.setLimiterParams(bus.id, { ...bus.limiter, enabled: on })}
     />
   </div>
+  <GrMeter
+    key={`bp:${bus.id}`}
+    width={78}
+    deps={[bus.gainDb, bus.limiter.thresholdDb, bus.limiter.enabled, bus.mute]}
+    reduction={(pre) => (bus.mute ? 0 : limiterReduction(pre, bus.gainDb, bus.limiter.thresholdDb, bus.limiter.enabled))}
+  />
 
   <MuteSoloButtons mute={bus.mute} onmute={(on) => mixer.setMute({ bus: bus.id }, on)} />
 </div>

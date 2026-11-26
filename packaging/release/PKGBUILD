@@ -1,7 +1,7 @@
 # Builds the checked-out source tree (used by .github/workflows/release.yml).
 # For a git build from scratch see ../PKGBUILD.
 pkgname=linuxmeeter
-pkgver=0.2.0
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="VoiceMeeter-style virtual audio mixer for PipeWire (Tauri + Svelte)"
 arch=(x86_64)

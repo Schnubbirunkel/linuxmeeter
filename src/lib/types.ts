@@ -101,6 +101,11 @@ export interface MeterFrame {
   strips: number[][];
   /** Keyed by bus order in AppState.buses. */
   buses: number[][];
+  /** Each strip's input before gain and dynamics. */
+  stripsPre?: number[][];
+  /** Each bus's mix before gain and limiter. */
+  busesPre?: number[][];
 }
 
-export type MeterKey = `s:${number}` | `b:${BusId}`;
+/** s/b: strip/bus output; sp/bp: before the strip's dynamics / the bus limiter. */
+export type MeterKey = `s:${number}` | `b:${BusId}` | `sp:${number}` | `bp:${BusId}`;

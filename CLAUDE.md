@@ -202,10 +202,32 @@ Gain commands intentionally emit no `State` event from the engine for the same r
 
 ### EQ band layout
 
-Eight EQ bands per strip, split by owner: **bands 0–3** are the user-facing EQ panel,
-**bands 4–7** belong to the voice-color XY pad (voice-tuned corners at 300 Hz / 400 Hz /
-3 kHz / 3.5 kHz, `EqParams::color_defaults`). The two never touch each other's indices.
-`persist::sanitize` migrates older 4-band profiles up to 8.
+The strip EQ is LSP `para_equalizer_x16_stereo`. `EqParams.bands` are the EQ panel's
+points (0..=`MAX_EQ_BANDS` = 12, any order, added/removed in the panel); `EqParams.color`
+are the voice-color XY pad's four bands (voice-tuned corners at 300 Hz / 400 Hz / 3 kHz /
+3.5 kHz, `EqParams::color_defaults`). `EqParams::slots()` maps them onto the plugin:
+panel bands from slot 0, color bands in slots 12–15, unused slots `ft_N = 0` (off) —
+`params::eq_pairs` writes every slot. `EqParams::migrate` (run by `persist::sanitize` and on
+every `SetEqParams`) turns the old one-list layouts (4 bands, or 4 panel + 4 color) into
+this one. Filter types include low/high cut (LSP hi-pass/lo-pass).
+
+### Strips and buses
+
+Strips are added/removed at runtime (`AddStrip`/`RemoveStrip`, up to `MAX_STRIPS`); ids are
+never reused within a profile. Buses are a subset of `BusId::ALL` (A1–A4 hardware outputs,
+B1–B3 virtual mics); `strip_taps`/`bus_taps` stay index-aligned with `app.strips`/
+`app.buses`, so inserts and removals touch both. The devices programs pick (a virtual
+strip's sink, a B bus's source) set `node.virtual = false` explicitly — filter-chain
+defaults to true, and then pipewire-pulse drops the HARDWARE flag and KDE hides them.
+
+### Pre-DSP meters (gain reduction display)
+
+filter-chain does not expose LV2 output (meter) ports, so gain reduction is derived:
+`sync_pre_taps` keeps one extra tap per strip on its input (a virtual strip's sink monitor
+ports, a hardware strip's device) and one per bus fed by every strip routed into it. They
+arrive as `MeterFrame.strips_pre`/`buses_pre` (meter keys `sp:`/`bp:`), and
+`src/lib/utils/dynamics.ts` applies the static gate/compressor/limiter curves. Call
+`sync_pre_taps` after anything that changes strips, buses, devices or routes; it diffs.
 
 ### Renaming, profiles, remote control
 
@@ -218,6 +240,13 @@ them in the `default` metadata, so the session manager moves them back.
 `LoadProfile` / `CycleProfile` go through `apply_profile`: same strip ids,
 kinds and bus ids → only params/routes change (strips whose label or device
 differ are reloaded); otherwise `teardown()` + `finish_build()`.
+
+In-app global shortcuts (`shortcuts.rs`) register with KDE's `org.kde.kglobalaccel`; each
+action's unique name is the ctl command it runs, and presses go through the same `Ctl`
+as the socket and the tray menu. Bindings live in `app.toml` (`settings.rs`, one mutex,
+written atomically). Backups (`backup.rs`, `ctl export|import`, Settings panel) bundle
+every profile, the active one and `app.toml`; the engine writes imported profiles itself
+(`ImportProfiles`) so its autosave cannot race the import.
 
 `src-tauri/src/control.rs` serves `$XDG_RUNTIME_DIR/linuxmeeter.sock`;
 `linuxmeeter ctl …` sends one JSON line and prints the reply (it never starts
@@ -254,5 +283,8 @@ plus on shutdown. `sanitize()` clears state that must not survive a restart (sol
 - Default-output takeover writes the `default.configured.audio.sink` metadata key. The
   metadata listener deliberately ignores values starting with `lm.` so the remembered
   hardware default (used for restore) survives while we are the default.
-- Runtime deps that must exist on the machine: PipeWire ≥ 1.0 + WirePlumber,
+- Arch splits PipeWire: filter-graph (and with it LV2 in filter-chain) is in
+  `pipewire-audio`. Without it every module load fails with ENOENT. CI
+  (`.github/workflows/test.yml`) runs `make test-audio` in an Arch container for this reason.
+- Runtime deps that must exist on the machine: PipeWire ≥ 1.0 (+ `pipewire-audio` on Arch) + WirePlumber,
   `lsp-plugins-lv2`, `webkit2gtk-4.1`, `gtk3`, `libayatana-appindicator`.

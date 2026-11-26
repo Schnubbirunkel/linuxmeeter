@@ -32,8 +32,8 @@
   }
 
   /** Bind keys to a ctl action; the backend frees the keys from any other action. */
-  async function bind(action: string, name: string, keys: string | null) {
-    const stored = await ipc.setShortcut(action, name, keys);
+  async function bind(action: string, keys: string | null) {
+    const stored = await ipc.setShortcut(action, keys);
     await loadShortcuts();
     if (keys && !stored) throw new Error("not accepted");
   }
@@ -81,6 +81,28 @@
     }, 1200);
   }
 
+  let backupMsg = $state<{ text: string; error?: boolean } | null>(null);
+  async function exportAll() {
+    try {
+      const path = await ipc.exportSettings();
+      if (path) backupMsg = { text: `Saved to ${path}` };
+    } catch (e) {
+      backupMsg = { text: String(e), error: true };
+    }
+  }
+  async function importAll() {
+    try {
+      const names = await ipc.importSettings();
+      if (names) {
+        backupMsg = { text: `Restored ${names.length} profile${names.length === 1 ? "" : "s"}: ${names.join(", ")}` };
+        await loadShortcuts();
+        notifications = await ipc.getNotifications();
+      }
+    } catch (e) {
+      backupMsg = { text: String(e), error: true };
+    }
+  }
+
   function close() {
     ui.settingsOpen = false;
   }
@@ -111,6 +133,18 @@
       </button>
     </div>
 
+    <div class="setting">
+      <div>
+        <div class="label">Backup</div>
+        <div class="hint">All profiles, the active profile, notifications and shortcuts in one file.</div>
+      </div>
+      <button class="cmd" onclick={exportAll}>EXPORT…</button>
+      <button class="cmd" onclick={importAll}>IMPORT…</button>
+    </div>
+    {#if backupMsg}
+      <div class="hint" class:warn={backupMsg.error}>{backupMsg.text}</div>
+    {/if}
+
     <div class="sep"></div>
 
     <div class="label">Global shortcuts</div>
@@ -123,7 +157,7 @@
       <div class="table">
         {#each GLOBAL as [action, name]}
           <div class="name wide">{name}</div>
-          <KeyCapture value={bindings[action] ?? null} title={name} onset={(k) => bind(action, name, k)} />
+          <KeyCapture value={bindings[action] ?? null} title={name} onset={(k) => bind(action, k)} />
         {/each}
       </div>
 
@@ -135,7 +169,7 @@
           {#each ACTIONS as [action, , verb]}
             {@const id = `${action} ${row.id}`}
             {@const name = `${verb}: ${row.name}`}
-            <KeyCapture value={bindings[id] ?? null} title={name} onset={(k) => bind(id, name, k)} />
+            <KeyCapture value={bindings[id] ?? null} title={name} onset={(k) => bind(id, k)} />
           {/each}
         {/each}
       </div>

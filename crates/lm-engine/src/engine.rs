@@ -25,7 +25,7 @@ use pipewire::types::ObjectType;
 
 use crate::filterchain::{bus_args, hardware_strip_args, virtual_strip_args, LoadedModule};
 use crate::links::LinkManager;
-use crate::meter::MeterTap;
+use crate::meter::{MeterTap, SILENT_DB};
 use crate::params;
 use crate::registry::{parse, GraphModel};
 
@@ -62,6 +62,11 @@ struct Engine {
     bus_modules: HashMap<BusId, LoadedModule>,
     strip_taps: Vec<MeterTap>,
     bus_taps: Vec<MeterTap>,
+    /// Taps before the DSP: a strip's input (gate/compressor display) and a
+    /// bus's summed mix (limiter display). Linked by `sync_pre_taps`.
+    pre_strip_taps: HashMap<StripId, MeterTap>,
+    pre_bus_taps: HashMap<BusId, MeterTap>,
+    pre_routes: HashSet<(String, String)>,
     /// Control-node name -> bound proxy (Props target for volume/mute/DSP).
     nodes: HashMap<String, Node>,
     /// Names we want to bind when they appear.
@@ -269,6 +274,7 @@ impl Engine {
         }
 
         self.built = true;
+        self.sync_pre_taps();
         self.reconcile();
         if self.app.take_default_output {
             self.apply_default_output(true);
@@ -390,6 +396,9 @@ impl Engine {
         self.links = LinkManager::default(); // dropping held proxies removes our links
         self.strip_taps.clear();
         self.bus_taps.clear();
+        self.pre_strip_taps.clear();
+        self.pre_bus_taps.clear();
+        self.pre_routes.clear();
         self.strip_modules.clear();
         self.bus_modules.clear();
         self.nodes.clear();
@@ -474,7 +483,7 @@ impl Engine {
                 self.apply_all_for(&b.in_node());
             }
         }
-        self.reconcile();
+        self.sync_pre_taps();
         if p.take_default_output != self.app.take_default_output {
             self.apply_default_output(p.take_default_output);
         }
@@ -598,7 +607,7 @@ impl Engine {
         self.links.set_route(&strip.out_node(), &tap.node_name.clone(), true);
         self.strip_taps.insert(at, tap);
         self.app.strips.insert(at, strip);
-        self.reconcile();
+        self.sync_pre_taps();
         self.send_state();
         self.save_now();
     }
@@ -615,7 +624,7 @@ impl Engine {
         self.nodes.remove(&strip.control_node());
         self.wanted_controls.remove(&strip.control_node());
         self.strip_modules.remove(&id); // unloads the module
-        self.reconcile();
+        self.sync_pre_taps();
         if self.app.take_default_output && strip.kind == StripKind::Virtual {
             // The default output was (possibly) this strip: move it to the
             // next virtual strip, or hand it back to the hardware device.
@@ -654,7 +663,7 @@ impl Engine {
             s.routes.entry(id).or_insert(false);
         }
         self.app.buses.insert(at, b);
-        self.reconcile();
+        self.sync_pre_taps();
         self.send_state();
         self.save_now();
     }
@@ -672,9 +681,66 @@ impl Engine {
         self.nodes.remove(&b.in_node());
         self.wanted_controls.remove(&b.in_node());
         self.bus_modules.remove(&id);
-        self.reconcile();
+        self.sync_pre_taps();
         self.send_state();
         self.save_now();
+    }
+
+    /// Create/drop the pre-DSP taps and point them at the right sources:
+    /// a virtual strip's sink (its monitor ports), a hardware strip's
+    /// device, and every strip routed into a bus. Diffed, so it is cheap to
+    /// call after any change to strips, buses, devices or routes.
+    fn sync_pre_taps(&mut self) {
+        let strip_ids: HashSet<StripId> = self.app.strips.iter().map(|s| s.id).collect();
+        let bus_ids: HashSet<BusId> = self.app.buses.iter().map(|b| b.id).collect();
+        self.pre_strip_taps.retain(|id, _| strip_ids.contains(id));
+        self.pre_bus_taps.retain(|id, _| bus_ids.contains(id));
+        for id in strip_ids {
+            if !self.pre_strip_taps.contains_key(&id) {
+                match MeterTap::new(self.core.clone(), &format!("s{id}.pre")) {
+                    Ok(t) => {
+                        self.pre_strip_taps.insert(id, t);
+                    }
+                    Err(e) => tracing::warn!("pre tap failed: {e}"),
+                }
+            }
+        }
+        for id in bus_ids {
+            if !self.pre_bus_taps.contains_key(&id) {
+                match MeterTap::new(self.core.clone(), &format!("b{id:?}.pre").to_lowercase()) {
+                    Ok(t) => {
+                        self.pre_bus_taps.insert(id, t);
+                    }
+                    Err(e) => tracing::warn!("pre tap failed: {e}"),
+                }
+            }
+        }
+
+        let mut wanted: HashSet<(String, String)> = HashSet::new();
+        for s in &self.app.strips {
+            let Some(tap) = self.pre_strip_taps.get(&s.id) else { continue };
+            let source = match s.kind {
+                StripKind::Virtual => Some(s.node_base()),
+                StripKind::Hardware => s.hw_key.clone(),
+            };
+            if let Some(source) = source {
+                wanted.insert((source, tap.node_name.clone()));
+            }
+        }
+        for b in &self.app.buses {
+            let Some(tap) = self.pre_bus_taps.get(&b.id) else { continue };
+            for s in self.app.strips.iter().filter(|s| s.routes.get(&b.id).copied().unwrap_or(false)) {
+                wanted.insert((s.out_node(), tap.node_name.clone()));
+            }
+        }
+        for (from, to) in self.pre_routes.difference(&wanted) {
+            self.links.set_route(from, to, false);
+        }
+        for (from, to) in wanted.difference(&self.pre_routes) {
+            self.links.set_route(from, to, true);
+        }
+        self.pre_routes = wanted;
+        self.reconcile();
     }
 
     fn first_node(&self, class: &str) -> Option<String> {
@@ -847,7 +913,7 @@ impl Engine {
                     .zip(self.app.buses.iter().find(|b| b.id == bus).map(|b| b.in_node()));
                 if let Some((out, into)) = pair {
                     self.links.set_route(&out, &into, on);
-                    self.reconcile();
+                    self.sync_pre_taps();
                 }
                 self.send_state();
             }
@@ -901,6 +967,7 @@ impl Engine {
                     s.online = known;
                 }
                 self.reload_strip(strip);
+                self.sync_pre_taps();
                 self.send_state();
             }
             EngineCommand::SetBusTarget { bus, hw_key } => {
@@ -1104,6 +1171,18 @@ impl Engine {
             seq: self.seq,
             strips: self.strip_taps.iter().map(|t| t.accum.drain()).collect(),
             buses: self.bus_taps.iter().map(|t| t.accum.drain()).collect(),
+            strips_pre: self
+                .app
+                .strips
+                .iter()
+                .map(|s| self.pre_strip_taps.get(&s.id).map_or([SILENT_DB; 4], |t| t.accum.drain()))
+                .collect(),
+            buses_pre: self
+                .app
+                .buses
+                .iter()
+                .map(|b| self.pre_bus_taps.get(&b.id).map_or([SILENT_DB; 4], |t| t.accum.drain()))
+                .collect(),
         }
     }
 }
@@ -1145,6 +1224,9 @@ fn run(
         bus_modules: HashMap::new(),
         strip_taps: Vec::new(),
         bus_taps: Vec::new(),
+        pre_strip_taps: HashMap::new(),
+        pre_bus_taps: HashMap::new(),
+        pre_routes: HashSet::new(),
         nodes: HashMap::new(),
         wanted_controls: HashSet::new(),
         metadata: None,

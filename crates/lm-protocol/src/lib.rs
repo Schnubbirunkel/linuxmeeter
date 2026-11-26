@@ -304,6 +304,12 @@ pub struct MeterFrame {
     pub seq: u32,
     pub strips: Vec<[f32; 4]>,
     pub buses: Vec<[f32; 4]>,
+    /// Each strip's input before gain and dynamics (gate/compressor display).
+    #[serde(default)]
+    pub strips_pre: Vec<[f32; 4]>,
+    /// Each bus's mix before gain and limiter (limiter gain-reduction display).
+    #[serde(default)]
+    pub buses_pre: Vec<[f32; 4]>,
 }
 
 /// A strip or a bus, as sent by the frontend: `{"strip": 3}` or `{"bus": "A1"}`.
@@ -620,7 +626,7 @@ mod tests {
 
     #[test]
     fn meter_frame_round_trips() {
-        let f = MeterFrame { seq: 9, strips: vec![[-6.0, -6.5, -9.0, -9.2]], buses: vec![[0.0; 4]] };
+        let f = MeterFrame { seq: 9, strips: vec![[-6.0, -6.5, -9.0, -9.2]], buses: vec![[0.0; 4]], strips_pre: vec![[-3.0; 4]], buses_pre: vec![] };
         let back: MeterFrame = serde_json::from_str(&serde_json::to_string(&f).unwrap()).unwrap();
         assert_eq!(back, f);
     }

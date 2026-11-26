@@ -27,6 +27,8 @@ usage: linuxmeeter ctl <command> [args]
   remove-strip <channel>         remove an input strip
   add-bus a|b                    add a hardware output (A) or virtual mic (B) bus
   remove-bus <bus>               remove a bus
+  export <file>                  save all profiles and settings to a file
+  import <file>                  restore such a file
   profile <name>                 switch profile (a new name copies the current mixer)
   profile-next | profile-prev    cycle through saved profiles
   show                           bring the window up
@@ -88,6 +90,10 @@ pub enum Action {
     },
     Show,
     Reply(String),
+    /// Write a backup of everything to this file.
+    Export(String),
+    /// Restore a backup file.
+    Import(String),
 }
 
 /// Strip or bus named by `spec`, with its display label.
@@ -234,6 +240,13 @@ pub fn parse(args: &[String], state: &AppState) -> Result<Action, String> {
             "previous profile".into(),
         ),
         "show" => Ok(Action::Show),
+        "export" | "import" => {
+            let path = rest.join(" ");
+            if path.is_empty() {
+                return Err(format!("`{cmd}` needs a file path"));
+            }
+            Ok(if cmd == "export" { Action::Export(path) } else { Action::Import(path) })
+        }
         "list" => Ok(Action::Reply(list(state))),
         "help" | "--help" | "-h" => Ok(Action::Reply(HELP.into())),
         other => Err(format!("unknown command \"{other}\"\n\n{HELP}")),

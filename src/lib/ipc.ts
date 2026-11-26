@@ -43,7 +43,11 @@ export interface Ipc {
   /** In-app global shortcuts (KDE). `available` is false outside Plasma. */
   getShortcuts(): Promise<ShortcutInfo>;
   /** Bind keys ("Ctrl+Alt+M", null = remove) to a ctl action; resolves to the stored keys. */
-  setShortcut(action: string, name: string, keys: string | null): Promise<string | null>;
+  setShortcut(action: string, keys: string | null): Promise<string | null>;
+  /** Save all profiles + app settings to a file the user picks; resolves to its path (null = cancelled). */
+  exportSettings(): Promise<string | null>;
+  /** Restore such a file; resolves to the restored profile names (null = cancelled). */
+  importSettings(): Promise<string[] | null>;
   /** Bindings changed outside the app (System Settings). */
   onShortcutsChanged(cb: () => void): () => void;
   getAutostart(): Promise<boolean>;
@@ -89,7 +93,9 @@ function tauriIpc(): Ipc {
     addBus: (hardware) => invoke("add_bus", { hardware }),
     removeBus: (bus) => invoke("remove_bus", { bus }),
     getShortcuts: () => invoke("get_shortcuts"),
-    setShortcut: (action, name, keys) => invoke("set_shortcut", { action, name, keys }),
+    setShortcut: (action, keys) => invoke("set_shortcut", { action, keys }),
+    exportSettings: () => invoke("export_settings"),
+    importSettings: () => invoke("import_settings"),
     onShortcutsChanged: (cb) => {
       const un = event.then((e) => e.listen("shortcuts_changed", () => cb()));
       return () => void un.then((f) => f());

@@ -3,6 +3,9 @@
   import { mixer } from "../lib/state/mixer.svelte";
   import { ui } from "../lib/state/ui.svelte";
   import Knob from "./Knob.svelte";
+  import { onMount } from "svelte";
+  import { getMeter, markDirty, registerRenderer } from "../lib/state/meters";
+  import { compReduction, gateOpen, peakOf } from "../lib/utils/dynamics";
 
   interface Props {
     strip: StripState;
@@ -28,6 +31,115 @@
     const out = inDb <= c.thresholdDb ? inDb : c.thresholdDb + (inDb - c.thresholdDb) / Math.max(1, c.ratio);
     return out + c.makeupDb;
   }
+
+  // ---- live view: what the gate and compressor do to the signal now ----
+  // One renderer on the strip's pre-dynamics meter draws all three canvases.
+  const GR_RANGE = 24;
+  const GATE_W = 330;
+  const GATE_H = 16;
+  const GATE_MIN = -70;
+  let live: HTMLCanvasElement;
+  let grBar: HTMLCanvasElement;
+  let gateBar: HTMLCanvasElement;
+  let liveText = $state({ comp: "—", gate: "—", open: true, level: "—" });
+  // Plain copies for the draw callback (it runs outside Svelte).
+  let params: { comp: StripState["comp"]; gate: StripState["gate"]; gainDb: number } | null = null;
+
+  $effect(() => {
+    params = { comp: { ...strip.comp }, gate: { ...strip.gate }, gainDb: strip.gainDb };
+    markDirty(`sp:${strip.id}`);
+  });
+
+  onMount(() => {
+    const dpr = window.devicePixelRatio || 1;
+    const setup = (c: HTMLCanvasElement, w: number, h: number) => {
+      c.width = w * dpr;
+      c.height = h * dpr;
+      const ctx = c.getContext("2d")!;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return ctx;
+    };
+    const lc = setup(live, CW, CH);
+    const gc = setup(grBar, 8, CH);
+    const tc = setup(gateBar, GATE_W, GATE_H);
+    const css = getComputedStyle(document.documentElement);
+    const col = (n: string) => css.getPropertyValue(n).trim();
+    const c = {
+      accent: col("--accent"),
+      hi: col("--accent-hi"),
+      trough: col("--bg-0"),
+      green: col("--meter-green"),
+      red: col("--meter-red"),
+      dim: col("--text-3"),
+      text: col("--text-1"),
+    };
+    const mono = col("--mono") || "monospace";
+    const state = getMeter(`sp:${strip.id}`);
+    let last = "";
+
+    const draw = () => {
+      if (!params) return;
+      const { comp, gate, gainDb } = params;
+      const pre = peakOf(state.peak);
+      const level = pre <= -80 ? -90 : pre + gainDb;
+      const gr = compReduction(level, comp.thresholdDb, comp.ratio, comp.enabled);
+      const open = gateOpen(level, gate.thresholdDb, gate.enabled);
+      const key = `${level.toFixed(1)}|${gr.toFixed(1)}|${open}|${comp.thresholdDb}|${comp.ratio}|${comp.makeupDb}|${gate.thresholdDb}|${comp.enabled}|${gate.enabled}`;
+      if (key === last) return;
+      last = key;
+
+      // Dot on the transfer curve.
+      lc.clearRect(0, 0, CW, CH);
+      if (level > DB_MIN) {
+        const x = xFor(Math.min(0, level));
+        const y = yFor(Math.max(DB_MIN, Math.min(0, transfer(Math.min(0, level)))));
+        lc.strokeStyle = "rgba(255,255,255,0.18)";
+        lc.lineWidth = 1;
+        lc.beginPath();
+        lc.moveTo(Math.round(x) + 0.5, CH);
+        lc.lineTo(Math.round(x) + 0.5, y);
+        lc.stroke();
+        lc.beginPath();
+        lc.arc(x, y, 4, 0, Math.PI * 2);
+        lc.fillStyle = comp.enabled ? c.hi : c.dim;
+        lc.fill();
+      }
+
+      // Compressor gain reduction, top-down.
+      gc.fillStyle = c.trough;
+      gc.fillRect(0, 0, 8, CH);
+      const h = Math.min(1, gr / GR_RANGE) * CH;
+      if (h > 0) {
+        gc.fillStyle = gr >= 12 ? c.red : c.accent;
+        gc.fillRect(0, 0, 8, h);
+      }
+
+      // Gate: input level against the threshold.
+      const gx = (db: number) => ((Math.max(GATE_MIN, Math.min(0, db)) - GATE_MIN) / -GATE_MIN) * GATE_W;
+      tc.fillStyle = c.trough;
+      tc.fillRect(0, 0, GATE_W, GATE_H);
+      if (level > GATE_MIN) {
+        tc.fillStyle = !gate.enabled ? c.dim : open ? c.green : c.red;
+        tc.fillRect(0, 4, gx(level), GATE_H - 8);
+      }
+      const tx = Math.round(gx(gate.thresholdDb)) + 0.5;
+      tc.strokeStyle = gate.enabled ? c.text : c.dim;
+      tc.lineWidth = 2;
+      tc.beginPath();
+      tc.moveTo(tx, 1);
+      tc.lineTo(tx, GATE_H - 1);
+      tc.stroke();
+      tc.font = `500 8px ${mono}`;
+
+      liveText = {
+        comp: comp.enabled ? (gr > 0.05 ? `-${gr.toFixed(1)} dB` : "0.0 dB") : "off",
+        gate: gate.enabled ? (open ? "OPEN" : "CLOSED") : "off",
+        open,
+        level: level > -80 ? `${level.toFixed(1)} dBFS` : "silence",
+      };
+    };
+    return registerRenderer(`sp:${strip.id}`, draw);
+  });
 
   function setComp(patch: Partial<StripState["comp"]>, enable = true) {
     mixer.setCompParams(strip.id, { ...strip.comp, ...patch, ...(enable ? { enabled: true } : {}) });
@@ -234,6 +346,7 @@
         </span>
       </div>
       <div class="comprow">
+        <div class="curvewrap">
         <canvas
           bind:this={canvas}
           style:width="{CW}px"
@@ -246,6 +359,12 @@
           style:cursor={hover === "knee" ? "move" : hover === "slope" ? "ns-resize" : "default"}
           title="Drag knee: threshold + makeup · drag slope: ratio · double-click: reset"
         ></canvas>
+        <canvas class="overlay" bind:this={live} style:width="{CW}px" style:height="{CH}px"></canvas>
+        </div>
+        <div class="grcol" title="Compressor gain reduction right now">
+          <canvas class="gr" bind:this={grBar} style:width="8px" style:height="{CH}px"></canvas>
+          <span class="grval">{liveText.comp}</span>
+        </div>
         <div class="knobs">
           <Knob label="THRESH" min={-60} max={0} value={strip.comp.thresholdDb} defaultValue={-18} onchange={(v) => setComp({ thresholdDb: v })} />
           <Knob label="RATIO" min={1} max={20} taper="log" value={strip.comp.ratio} defaultValue={4} fmt={(v) => `${v.toFixed(1)}:1`} onchange={(v) => setComp({ ratio: Math.round(v * 10) / 10 })} />
@@ -273,6 +392,11 @@
           </button>
         </span>
       </div>
+      <div class="gatelive" title="Input level (after the strip fader) against the gate threshold">
+        <canvas class="gatebar" bind:this={gateBar} style:width="{GATE_W}px" style:height="{GATE_H}px"></canvas>
+        <span class="gatestate" class:closed={!liveText.open}>{liveText.gate}</span>
+      </div>
+      <div class="levelnote">input {liveText.level}</div>
       <div class="knobs gaterow">
         <Knob label="THRESH" min={-70} max={0} value={strip.gate.thresholdDb} defaultValue={-40} onchange={(v) => setGate({ thresholdDb: v })} />
         <Knob label="ATTACK" min={0.1} max={500} taper="log" value={strip.gate.attackMs} defaultValue={20} fmt={fmtMs} onchange={(v) => setGate({ attackMs: Math.round(v * 10) / 10 })} />
@@ -381,6 +505,53 @@
     cursor: crosshair;
     touch-action: none;
     flex: none;
+  }
+  .curvewrap {
+    position: relative;
+    flex: none;
+  }
+  canvas.overlay {
+    position: absolute;
+    inset: 0;
+    border-color: transparent;
+    pointer-events: none;
+  }
+  .grcol {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex: none;
+  }
+  canvas.gr,
+  canvas.gatebar {
+    cursor: default;
+  }
+  .grval,
+  .gatestate,
+  .levelnote {
+    font: 500 9px var(--mono);
+    color: var(--text-2);
+    white-space: nowrap;
+  }
+  .grval {
+    width: 44px;
+    text-align: center;
+  }
+  .gatelive {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .gatestate {
+    color: var(--meter-green);
+  }
+  .gatestate.closed {
+    color: var(--meter-red);
+  }
+  .levelnote {
+    color: var(--text-3);
+    margin-top: -6px;
   }
   .comprow {
     display: flex;
