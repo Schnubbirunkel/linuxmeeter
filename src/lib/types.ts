@@ -81,6 +81,8 @@ export interface AppState {
   buses: BusState[];
   devices: DeviceInfo[];
   profileName: string;
+  /** Every saved profile name, sorted; includes profileName. */
+  profiles: string[];
   /** True while linuxmeeter's System strip is the system default output. */
   takeDefaultOutput: boolean;
 }

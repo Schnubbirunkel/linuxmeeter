@@ -37,6 +37,8 @@
     {deviceOptions}
     deviceDisabled={strip.kind === "virtual"}
     ondevicechange={(v) => mixer.setStripDevice(strip.id, v)}
+    onrename={(v) => mixer.rename({ strip: strip.id }, v)}
+    nameTitle={`Shortcut id: strip:${strip.id}`}
   />
 
   <div class="mf">

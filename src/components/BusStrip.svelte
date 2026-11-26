@@ -36,6 +36,8 @@
     {deviceOptions}
     deviceDisabled={isVirtual}
     ondevicechange={(v) => mixer.setBusTarget(bus.id, v)}
+    onrename={(v) => mixer.rename({ bus: bus.id }, v)}
+    nameTitle={`Shortcut id: ${bus.id}`}
   />
 
   <div class="mf">

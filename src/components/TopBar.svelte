@@ -3,7 +3,9 @@
   import { ipc } from "../lib/ipc";
   import { mixer } from "../lib/state/mixer.svelte";
   import { startDragging } from "../lib/window";
+  import { ui } from "../lib/state/ui.svelte";
   import WindowControls from "./WindowControls.svelte";
+  import ProfileMenu from "./ProfileMenu.svelte";
 
   let autostart = $state(false);
   onMount(async () => {
@@ -28,12 +30,7 @@
 <header class="topbar" {onpointerdown}>
   <div class="wordmark">LINUXMEETER</div>
   <div class="center">
-    <button class="chip" title="Profile">
-      {mixer.profileName}
-      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-        <path d="M2.5 4l2.5 2.5L7.5 4" stroke="currentColor" stroke-width="1.25" />
-      </svg>
-    </button>
+    <ProfileMenu />
     <button
       class="toggle"
       class:active={mixer.takeDefaultOutput}
@@ -53,7 +50,7 @@
       AUTOSTART
     </button>
   </div>
-  <button class="iconbtn" title="Settings">
+  <button class="iconbtn" title="Settings and global shortcuts" onclick={() => (ui.settingsOpen = true)}>
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
       <circle cx="8" cy="8" r="2.2" stroke="currentColor" stroke-width="1.25" />
       <path
@@ -99,22 +96,6 @@
     align-items: center;
     gap: 6px;
   }
-  .chip {
-    height: 24px;
-    padding: 0 8px;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: var(--bg-3);
-    border: 1px solid var(--border-0);
-    border-radius: 2px;
-    box-shadow: inset 0 1px 0 var(--hl-top);
-    font-size: 12px;
-    color: var(--text-1);
-  }
-  .chip:hover {
-    background: var(--bg-4);
-  }
   .toggle {
     height: 24px;
     padding: 0 8px;
@@ -134,9 +115,6 @@
     background: var(--accent-glow);
     color: var(--accent);
     border-color: var(--accent);
-  }
-  .chip svg {
-    color: var(--text-3);
   }
   .iconbtn {
     width: 28px;

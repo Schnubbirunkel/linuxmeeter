@@ -65,6 +65,7 @@ const routes = (on: BusId[]): Record<BusId, boolean> => ({
 
 const state: AppState = {
   profileName: "Default",
+  profiles: ["Default", "Gaming", "Recording"],
   takeDefaultOutput: false,
   strips: [
     { id: 1, kind: "hardware", label: "Mic", hwKey: "alsa_input.usb-ZOOM_Corporation_UAC-2", online: true, gainDb: -4, mute: false, solo: false, routes: routes(["A2", "B1"]), gate: defaultGate(), comp: defaultComp(), eq: defaultEq() },
@@ -101,6 +102,12 @@ function findStrip(id: number): StripState | undefined {
 }
 
 let mockAutostart = false;
+let mockNotifications = true;
+
+function emitState(): void {
+  const snap = structuredClone(state);
+  for (const cb of stateSubs) cb(snap);
+}
 
 const meterSubs = new Set<(f: MeterFrame) => void>();
 const stateSubs = new Set<(s: AppState) => void>();
@@ -198,6 +205,39 @@ export const mockIpc: Ipc = {
     state.takeDefaultOutput = on;
     return Promise.resolve();
   },
+  rename: (t, label) => {
+    const clean = label.trim().slice(0, 32);
+    if (!clean) return Promise.resolve();
+    const o = "strip" in t ? findStrip(t.strip) : state.buses.find((b) => b.id === t.bus);
+    if (o) o.label = clean;
+    emitState();
+    return Promise.resolve();
+  },
+  loadProfile: (name) => {
+    if (!state.profiles.includes(name)) state.profiles = [...state.profiles, name].sort();
+    state.profileName = name;
+    emitState();
+    return Promise.resolve();
+  },
+  saveProfileAs: (name) => {
+    const clean = name.trim();
+    if (!clean) return Promise.resolve();
+    if (!state.profiles.includes(clean)) state.profiles = [...state.profiles, clean].sort();
+    state.profileName = clean;
+    emitState();
+    return Promise.resolve();
+  },
+  deleteProfile: (name) => {
+    if (name !== state.profileName) state.profiles = state.profiles.filter((p) => p !== name);
+    emitState();
+    return Promise.resolve();
+  },
+  getNotifications: () => Promise.resolve(mockNotifications),
+  setNotifications: (on) => {
+    mockNotifications = on;
+    return Promise.resolve();
+  },
+  getExePath: () => Promise.resolve("/usr/bin/linuxmeeter"),
   getAutostart: () => Promise.resolve(mockAutostart),
   setAutostart: (on) => {
     mockAutostart = on;

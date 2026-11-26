@@ -21,6 +21,15 @@ export interface Ipc {
   setStripDevice(stripId: number, hwKey: string): Promise<void>;
   setBusTarget(bus: BusId, hwKey: string): Promise<void>;
   setDefaultOutput(on: boolean): Promise<void>;
+  /** Rename a strip or bus — also renames the PipeWire device other programs see. */
+  rename(target: Target, label: string): Promise<void>;
+  loadProfile(name: string): Promise<void>;
+  saveProfileAs(name: string): Promise<void>;
+  deleteProfile(name: string): Promise<void>;
+  getNotifications(): Promise<boolean>;
+  setNotifications(on: boolean): Promise<void>;
+  /** Absolute path of the app binary, for `<exe> ctl …` shortcut commands. */
+  getExePath(): Promise<string>;
   getAutostart(): Promise<boolean>;
   setAutostart(on: boolean): Promise<void>;
   /** Subscribe to meter frames; returns unsubscribe. */
@@ -52,6 +61,13 @@ function tauriIpc(): Ipc {
     setStripDevice: (stripId, hwKey) => invoke("set_strip_device", { stripId, hwKey }),
     setBusTarget: (bus, hwKey) => invoke("set_bus_target", { bus, hwKey }),
     setDefaultOutput: (on) => invoke("set_default_output", { on }),
+    rename: (target, label) => invoke("rename", { target, label }),
+    loadProfile: (name) => invoke("load_profile", { name }),
+    saveProfileAs: (name) => invoke("save_profile_as", { name }),
+    deleteProfile: (name) => invoke("delete_profile", { name }),
+    getNotifications: () => invoke("get_notifications"),
+    setNotifications: (on) => invoke("set_notifications", { on }),
+    getExePath: () => invoke("get_exe_path"),
     getAutostart: () => invoke("get_autostart"),
     setAutostart: (on) => invoke("set_autostart", { on }),
     onMeters: (cb) => {

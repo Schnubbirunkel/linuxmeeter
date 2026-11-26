@@ -13,6 +13,7 @@ class MixerStore {
   buses = $state<BusState[]>([]);
   devices = $state<DeviceInfo[]>([]);
   profileName = $state("Default");
+  profiles = $state<string[]>([]);
   takeDefaultOutput = $state(false);
   ready = $state(false);
   error = $state<string | null>(null);
@@ -69,6 +70,7 @@ class MixerStore {
     }
     this.devices = s.devices;
     this.profileName = s.profileName;
+    this.profiles = s.profiles ?? [s.profileName];
     this.takeDefaultOutput = s.takeDefaultOutput;
   }
 
@@ -161,6 +163,31 @@ class MixerStore {
     const b = this.bus(bus);
     if (b) b.targetHwKey = hwKey;
     void ipc.setBusTarget(bus, hwKey);
+  }
+
+  rename(target: Target, label: string): void {
+    const clean = label.trim();
+    const o = this.#find(target);
+    if (!o || !clean || clean === o.label) return;
+    o.label = clean;
+    void ipc.rename(target, clean);
+  }
+
+  loadProfile(name: string): void {
+    if (name === this.profileName) return;
+    void ipc.loadProfile(name);
+  }
+
+  saveProfileAs(name: string): void {
+    const clean = name.trim();
+    if (!clean || clean === this.profileName) return;
+    void ipc.saveProfileAs(clean);
+  }
+
+  deleteProfile(name: string): void {
+    if (name === this.profileName) return;
+    this.profiles = this.profiles.filter((p) => p !== name);
+    void ipc.deleteProfile(name);
   }
 
   setDefaultOutput(on: boolean): void {

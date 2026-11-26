@@ -73,6 +73,25 @@ pub fn save_profile(name: &str, profile: &Profile) -> io::Result<()> {
     atomic_write(&dir.join(format!("{name}.toml")), &toml)
 }
 
+/// Names of every saved profile, sorted (case-insensitively).
+pub fn list_profiles() -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(config_dir().join("profiles"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().into_string().ok()?;
+            name.strip_suffix(".toml").map(String::from)
+        })
+        .collect();
+    names.sort_by_key(|n| n.to_lowercase());
+    names
+}
+
+pub fn delete_profile(name: &str) -> io::Result<()> {
+    fs::remove_file(config_dir().join("profiles").join(format!("{name}.toml")))
+}
+
 /// Reset transient runtime state that should never survive a restart.
 fn sanitize(p: &mut Profile) {
     for s in &mut p.strips {

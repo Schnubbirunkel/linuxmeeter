@@ -207,6 +207,27 @@ Eight EQ bands per strip, split by owner: **bands 0–3** are the user-facing EQ
 3 kHz / 3.5 kHz, `EqParams::color_defaults`). The two never touch each other's indices.
 `persist::sanitize` migrates older 4-band profiles up to 8.
 
+### Renaming, profiles, remote control
+
+A strip/bus `label` is also the `node.description` of its PipeWire nodes, so
+`EngineCommand::Rename` reloads the module. Before any reload,
+`remember_streams` records program streams linked to the device; when the
+node reappears `retarget_streams` writes `target.object` (its new serial) for
+them in the `default` metadata, so the session manager moves them back.
+
+`LoadProfile` / `CycleProfile` go through `apply_profile`: same strip ids,
+kinds and bus ids → only params/routes change (strips whose label or device
+differ are reloaded); otherwise `teardown()` + `finish_build()`.
+
+`src-tauri/src/control.rs` serves `$XDG_RUNTIME_DIR/linuxmeeter.sock`;
+`linuxmeeter ctl …` sends one JSON line and prints the reply (it never starts
+GTK). A second plain launch just sends `show`. `NudgeGain` / `ToggleMute`
+emit `State` (unlike `SetGain`), and the event pump turns the next `State`
+after a ctl action into a desktop notification (`notify.rs`, own thread,
+same-key notifications replace each other). UI settings live in `app.toml`,
+separate from the engine's `config.toml`. The 5 % step is in fader travel:
+`lm_protocol::taper` mirrors `src/lib/utils/db.ts` — change both together.
+
 ### Persistence
 
 TOML under `~/.config/linuxmeeter/`: `config.toml` (last profile) and

@@ -6,6 +6,7 @@
   import StripRack from "./components/StripRack.svelte";
   import EqPanel from "./components/EqPanel.svelte";
   import DynPanel from "./components/DynPanel.svelte";
+  import SettingsPanel from "./components/SettingsPanel.svelte";
 
   onMount(() => {
     void mixer.init();
@@ -28,6 +29,9 @@
 {/if}
 {#if dynStrip}
   <DynPanel strip={dynStrip} />
+{/if}
+{#if ui.settingsOpen}
+  <SettingsPanel />
 {/if}
 
 <style>

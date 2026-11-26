@@ -231,6 +231,9 @@ pub struct AppState {
     pub buses: Vec<BusState>,
     pub devices: Vec<DeviceInfo>,
     pub profile_name: String,
+    /// Every saved profile name, sorted; always includes `profile_name`.
+    #[serde(default)]
+    pub profiles: Vec<String>,
     /// True while linuxmeeter's System strip is the system default output.
     pub take_default_output: bool,
 }
@@ -276,7 +279,107 @@ pub enum EngineCommand {
     /// in the webview, so a mixer sitting in the tray stops paying for meters
     /// nobody can see. Audio is unaffected either way.
     SetMetersEnabled { on: bool },
+    /// Rename a strip or bus. The label is also the `node.description` other
+    /// programs see, so this reloads the module (node names stay identical).
+    Rename { target: Target, label: String },
+    /// Move a fader by `step` of its travel (0.05 = 5 %), clamped. Unlike
+    /// `SetGain` this emits a `State` event: it comes from outside the UI
+    /// (global shortcuts), so the window has to be told.
+    NudgeGain { target: Target, step: f32 },
+    /// Flip mute; emits `State`.
+    ToggleMute { target: Target },
+    /// Save the current profile, then switch to `name` (created from the
+    /// current mixer if it does not exist yet).
+    LoadProfile { name: String },
+    /// Copy the current mixer into a new profile `name` and switch to it.
+    SaveProfileAs { name: String },
+    /// Delete a saved profile (never the active one).
+    DeleteProfile { name: String },
+    /// Switch to the next (`step` = 1) or previous (-1) profile, wrapping.
+    CycleProfile { step: i32 },
     Shutdown,
+}
+
+/// Longest strip/bus label; keeps names readable in other programs' device lists.
+pub const MAX_LABEL_LEN: usize = 32;
+
+/// Trim, drop control characters, cap the length. `None` if nothing is left.
+pub fn clean_label(label: &str) -> Option<String> {
+    let s: String = label
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(MAX_LABEL_LEN)
+        .collect();
+    let s = s.trim().to_string();
+    (!s.is_empty()).then_some(s)
+}
+
+/// Profile names become file names: no path separators, no leading dot.
+pub fn clean_profile_name(name: &str) -> Option<String> {
+    let s: String = name
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control() && *c != '/' && *c != '\\')
+        .take(48)
+        .collect();
+    let s = s.trim().trim_start_matches('.').trim().to_string();
+    (!s.is_empty()).then_some(s)
+}
+
+/// Fader taper, mirrored from `src/lib/utils/db.ts` — keep the two in sync.
+/// Piecewise-linear: ~55 % of the travel covers −12..+12 dB.
+pub mod taper {
+    const BREAKPOINTS: [(f32, f32); 6] = [
+        (0.0, -72.0),
+        (0.08, -50.0),
+        (0.3, -30.0),
+        (0.55, -12.0),
+        (0.78, 0.0),
+        (1.0, 12.0),
+    ];
+    pub const MIN_DB: f32 = -72.0;
+    pub const MAX_DB: f32 = 12.0;
+
+    pub fn pos_to_db(p: f32) -> f32 {
+        if p <= 0.0 {
+            return MIN_DB;
+        }
+        let p = p.min(1.0);
+        for w in BREAKPOINTS.windows(2) {
+            let ((p0, d0), (p1, d1)) = (w[0], w[1]);
+            if p <= p1 {
+                return d0 + (d1 - d0) * (p - p0) / (p1 - p0);
+            }
+        }
+        MAX_DB
+    }
+
+    pub fn db_to_pos(db: f32) -> f32 {
+        if db.is_nan() || db <= MIN_DB {
+            return 0.0;
+        }
+        let db = db.min(MAX_DB);
+        for w in BREAKPOINTS.windows(2) {
+            let ((p0, d0), (p1, d1)) = (w[0], w[1]);
+            if db <= d1 {
+                return p0 + (p1 - p0) * (db - d0) / (d1 - d0);
+            }
+        }
+        1.0
+    }
+
+    /// Move `db` by `step` of fader travel; result snapped to 0.1 dB.
+    pub fn nudge(db: f32, step: f32) -> f32 {
+        let p = (db_to_pos(db) + step).clamp(0.0, 1.0);
+        // Round the position first so repeated nudges land on the same grid
+        // (0 %, 5 %, 10 % ...) instead of drifting with the 0.1 dB rounding.
+        let p = (p * 1000.0).round() / 1000.0;
+        if p <= 0.0 {
+            return MIN_DB;
+        }
+        (pos_to_db(p) * 10.0).round() / 10.0
+    }
 }
 
 /// Events out of the engine thread.
@@ -396,6 +499,7 @@ mod tests {
                 channels: 2,
             }],
             profile_name: "Default".into(),
+            profiles: vec!["Default".into()],
             take_default_output: true,
         })
         .expect("serialize");
@@ -459,12 +563,77 @@ mod tests {
             EngineCommand::SetEqParams { strip: 2, params: EqParams::default() },
             EngineCommand::SetDefaultOutput { on: true },
             EngineCommand::SetMetersEnabled { on: false },
+            EngineCommand::Rename {
+                target: Target::Bus { bus: BusId::B1 },
+                label: "Discord".into(),
+            },
+            EngineCommand::NudgeGain {
+                target: Target::Strip { strip: 2 },
+                step: -0.05,
+            },
+            EngineCommand::ToggleMute {
+                target: Target::Strip { strip: 2 },
+            },
+            EngineCommand::LoadProfile {
+                name: "Gaming".into(),
+            },
+            EngineCommand::CycleProfile { step: 1 },
             EngineCommand::Shutdown,
         ];
         for cmd in cmds {
             let text = serde_json::to_string(&cmd).expect("serialize");
             serde_json::from_str::<EngineCommand>(&text).expect("deserialize");
         }
+    }
+
+    #[test]
+    fn labels_are_cleaned() {
+        assert_eq!(clean_label("  Game  ").as_deref(), Some("Game"));
+        assert_eq!(clean_label("a\nb").as_deref(), Some("ab"));
+        assert_eq!(clean_label("   "), None);
+        assert_eq!(clean_label(&"x".repeat(100)).unwrap().len(), MAX_LABEL_LEN);
+    }
+
+    #[test]
+    fn profile_names_cannot_escape_the_directory() {
+        assert_eq!(
+            clean_profile_name("../etc/passwd").as_deref(),
+            Some("etcpasswd")
+        );
+        assert_eq!(clean_profile_name(" Gaming ").as_deref(), Some("Gaming"));
+        assert_eq!(clean_profile_name("..."), None);
+    }
+
+    /// Must match `src/lib/utils/db.ts` so a shortcut step and a fader drag agree.
+    #[test]
+    fn taper_matches_the_frontend_breakpoints() {
+        assert_eq!(taper::pos_to_db(0.78), 0.0);
+        assert_eq!(taper::pos_to_db(0.55), -12.0);
+        assert_eq!(taper::db_to_pos(0.0), 0.78);
+        assert_eq!(taper::db_to_pos(-100.0), 0.0);
+        assert_eq!(taper::db_to_pos(40.0), 1.0);
+        for i in 1..=100 {
+            let p = i as f32 / 100.0;
+            assert!((taper::db_to_pos(taper::pos_to_db(p)) - p).abs() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn nudges_move_five_percent_and_clamp() {
+        assert_eq!(taper::nudge(0.0, 0.05), 2.7); // 0.78 -> 0.83
+        assert_eq!(taper::nudge(0.0, -0.05), -2.6); // 0.78 -> 0.73
+        assert_eq!(taper::nudge(12.0, 0.05), 12.0);
+        assert_eq!(taper::nudge(-72.0, -0.05), -72.0);
+        assert_eq!(taper::nudge(f32::NEG_INFINITY, 0.05), -58.3); // 0 -> 0.05
+                                                                  // Down then up returns to the start.
+        let mut db = 0.0;
+        for _ in 0..7 {
+            db = taper::nudge(db, -0.05);
+        }
+        for _ in 0..7 {
+            db = taper::nudge(db, 0.05);
+        }
+        assert!(db.abs() < 0.05, "drifted to {db}");
     }
 
     // ---- DSP defaults -----------------------------------------------------

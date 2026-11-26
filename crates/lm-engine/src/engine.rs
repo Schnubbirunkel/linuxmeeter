@@ -72,11 +72,17 @@ struct Engine {
     seq: u32,
     /// Whether the 30 Hz drain emits. Off while the window is hidden.
     meters_on: bool,
+    /// Program streams (global ids) that were playing into / recording from
+    /// one of our devices when it was reloaded, keyed by that device's
+    /// node.name. When the device comes back they are pointed at it again —
+    /// otherwise the session manager leaves them on the fallback device.
+    pending_retarget: HashMap<String, Vec<u32>>,
 }
 
 impl Engine {
     fn send_state(&mut self) {
         self.refresh_devices();
+        self.refresh_profiles();
         self.dirty = true;
         let _ = self.evt_tx.send(EngineEvent::State(self.app.clone()));
     }
@@ -97,6 +103,15 @@ impl Engine {
             last_profile: self.app.profile_name.clone(),
         });
         self.dirty = false;
+    }
+
+    fn refresh_profiles(&mut self) {
+        let mut names = crate::persist::list_profiles();
+        if !self.app.profile_name.is_empty() && !names.contains(&self.app.profile_name) {
+            names.push(self.app.profile_name.clone());
+            names.sort_by_key(|n| n.to_lowercase());
+        }
+        self.app.profiles = names;
     }
 
     fn refresh_devices(&mut self) {
@@ -290,6 +305,7 @@ impl Engine {
     /// and the meter tap re-link automatically as the new ports appear.
     fn reload_strip(&mut self, id: StripId) {
         let Some(strip) = self.app.strips.iter().find(|s| s.id == id).cloned() else { return };
+        self.remember_streams(&strip.node_base());
         self.nodes.remove(&strip.control_node());
         self.strip_modules.remove(&id); // drop unloads the old module
         self.load_strip_module(&strip);
@@ -298,10 +314,188 @@ impl Engine {
 
     fn reload_bus(&mut self, id: BusId) {
         let Some(b) = self.app.buses.iter().find(|b| b.id == id).cloned() else { return };
+        self.remember_streams(&b.node_base());
         self.nodes.remove(&b.in_node());
         self.bus_modules.remove(&id);
         self.load_bus_module(&b);
         self.reconcile();
+    }
+
+    /// Note which program streams are linked to our device `node_name` (a
+    /// virtual strip's sink or a B bus's virtual mic) before it goes away.
+    fn remember_streams(&mut self, node_name: &str) {
+        let Some(dev) = self.model.node_by_name(node_name).map(|n| n.id) else {
+            return;
+        };
+        let mut ids: Vec<u32> = self
+            .model
+            .links
+            .values()
+            .filter_map(|l| {
+                if l.input_node == dev {
+                    Some(l.output_node)
+                } else if l.output_node == dev {
+                    Some(l.input_node)
+                } else {
+                    None
+                }
+            })
+            .filter(|id| {
+                self.model.nodes.get(id).is_some_and(|n| {
+                    !n.name.starts_with("lm.") && n.media_class.starts_with("Stream/")
+                })
+            })
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        if !ids.is_empty() {
+            tracing::debug!("{node_name}: will re-target streams {ids:?} after reload");
+            self.pending_retarget.insert(node_name.to_string(), ids);
+        }
+    }
+
+    /// Our device `name` (re)appeared with `serial`: send the streams that were
+    /// using it back, the same way a "move stream" in a volume control does.
+    fn retarget_streams(&mut self, name: &str, serial: u64) {
+        let Some(ids) = self.pending_retarget.remove(name) else {
+            return;
+        };
+        let Some((md, _)) = &self.metadata else {
+            return;
+        };
+        for id in ids {
+            if self.model.nodes.contains_key(&id) {
+                md.set_property(
+                    id,
+                    "target.object",
+                    Some("Spa:Id"),
+                    Some(&serial.to_string()),
+                );
+            }
+        }
+    }
+
+    /// Drop every module, tap and route: the start of a profile switch whose
+    /// layout differs from the current one.
+    fn teardown(&mut self) {
+        for s in self.app.strips.clone() {
+            self.remember_streams(&s.node_base());
+        }
+        for b in self.app.buses.clone() {
+            self.remember_streams(&b.node_base());
+        }
+        self.links = LinkManager::default(); // dropping held proxies removes our links
+        self.strip_taps.clear();
+        self.bus_taps.clear();
+        self.strip_modules.clear();
+        self.bus_modules.clear();
+        self.nodes.clear();
+        self.wanted_controls.clear();
+        self.built = false;
+    }
+
+    /// Switch to `p`. If it has the same strips and buses as what is running,
+    /// only parameters and routes change (and strips whose name or device
+    /// differ are reloaded), so audio keeps flowing. Otherwise the mixer is
+    /// rebuilt.
+    fn apply_profile(&mut self, name: String, mut p: crate::persist::Profile) {
+        let same_layout = p.strips.len() == self.app.strips.len()
+            && p.buses.len() == self.app.buses.len()
+            && p.strips
+                .iter()
+                .zip(&self.app.strips)
+                .all(|(a, b)| a.id == b.id && a.kind == b.kind)
+            && p.buses
+                .iter()
+                .zip(&self.app.buses)
+                .all(|(a, b)| a.id == b.id);
+        for s in &mut p.strips {
+            if s.kind == StripKind::Hardware {
+                s.online = s
+                    .hw_key
+                    .as_deref()
+                    .is_some_and(|k| self.model.node_by_name(k).is_some());
+            }
+        }
+        if !same_layout {
+            tracing::info!("profile {name}: different layout, rebuilding");
+            self.teardown();
+            self.app.strips = p.strips;
+            self.app.buses = p.buses;
+            self.app.profile_name = name;
+            let was_default = self.app.take_default_output;
+            self.app.take_default_output = p.take_default_output;
+            if was_default && !p.take_default_output {
+                self.apply_default_output(false);
+            }
+            self.finish_build();
+            return;
+        }
+
+        let reload_strips: Vec<StripId> = p
+            .strips
+            .iter()
+            .zip(&self.app.strips)
+            .filter(|(new, old)| new.label != old.label || new.hw_key != old.hw_key)
+            .map(|(new, _)| new.id)
+            .collect();
+        let reload_buses: Vec<BusId> = p
+            .buses
+            .iter()
+            .zip(&self.app.buses)
+            .filter(|(new, old)| new.label != old.label || new.target_hw_key != old.target_hw_key)
+            .map(|(new, _)| new.id)
+            .collect();
+        self.app.strips = p.strips;
+        self.app.buses = p.buses;
+        self.app.profile_name = name;
+        for strip in self.app.strips.clone() {
+            for b in &self.app.buses {
+                let on = strip.routes.get(&b.id).copied().unwrap_or(false);
+                self.links.set_route(&strip.out_node(), &b.in_node(), on);
+            }
+        }
+        for id in &reload_strips {
+            self.reload_strip(*id);
+        }
+        for id in &reload_buses {
+            self.reload_bus(*id);
+        }
+        for s in self.app.strips.clone() {
+            if !reload_strips.contains(&s.id) {
+                self.apply_all_for(&s.control_node());
+            }
+        }
+        for b in self.app.buses.clone() {
+            if !reload_buses.contains(&b.id) {
+                self.apply_all_for(&b.in_node());
+            }
+        }
+        self.reconcile();
+        if p.take_default_output != self.app.take_default_output {
+            self.apply_default_output(p.take_default_output);
+        }
+        self.send_state();
+        self.save_now();
+    }
+
+    fn switch_profile(&mut self, name: &str) {
+        let Some(name) = lm_protocol::clean_profile_name(name) else {
+            return;
+        };
+        if !self.built || name == self.app.profile_name {
+            return;
+        }
+        self.save_now();
+        match crate::persist::load_profile(&name) {
+            Some(p) => self.apply_profile(name, p),
+            None => {
+                // Unknown name: start it as a copy of what is running.
+                self.app.profile_name = name;
+                self.save_now();
+                self.send_state();
+            }
+        }
     }
 
     fn first_node(&self, class: &str) -> Option<String> {
@@ -557,6 +751,109 @@ impl Engine {
                 }
                 self.meters_on = on;
             }
+            EngineCommand::Rename { target, label } => {
+                let Some(label) = lm_protocol::clean_label(&label) else {
+                    return;
+                };
+                match target {
+                    Target::Strip { strip } => {
+                        let Some(s) = self.app.strips.iter_mut().find(|s| s.id == strip) else {
+                            return;
+                        };
+                        if s.label == label {
+                            return;
+                        }
+                        s.label = label;
+                        self.reload_strip(strip);
+                    }
+                    Target::Bus { bus } => {
+                        let Some(b) = self.app.buses.iter_mut().find(|b| b.id == bus) else {
+                            return;
+                        };
+                        if b.label == label {
+                            return;
+                        }
+                        b.label = label;
+                        self.reload_bus(bus);
+                    }
+                }
+                self.send_state();
+            }
+            EngineCommand::NudgeGain { target, step } => {
+                let gain = match target {
+                    Target::Strip { strip } => self
+                        .app
+                        .strips
+                        .iter_mut()
+                        .find(|s| s.id == strip)
+                        .map(|s| &mut s.gain_db),
+                    Target::Bus { bus } => self
+                        .app
+                        .buses
+                        .iter_mut()
+                        .find(|b| b.id == bus)
+                        .map(|b| &mut b.gain_db),
+                };
+                let Some(gain) = gain else { return };
+                *gain = lm_protocol::taper::nudge(*gain, step);
+                self.apply_gain(target);
+                self.send_state();
+            }
+            EngineCommand::ToggleMute { target } => {
+                let mute = match target {
+                    Target::Strip { strip } => self
+                        .app
+                        .strips
+                        .iter()
+                        .find(|s| s.id == strip)
+                        .map(|s| s.mute),
+                    Target::Bus { bus } => {
+                        self.app.buses.iter().find(|b| b.id == bus).map(|b| b.mute)
+                    }
+                };
+                if let Some(mute) = mute {
+                    self.handle(EngineCommand::SetMute {
+                        target,
+                        mute: !mute,
+                    });
+                }
+            }
+            EngineCommand::LoadProfile { name } => self.switch_profile(&name),
+            EngineCommand::SaveProfileAs { name } => {
+                let Some(name) = lm_protocol::clean_profile_name(&name) else {
+                    return;
+                };
+                if !self.built || name == self.app.profile_name {
+                    return;
+                }
+                self.save_now();
+                self.app.profile_name = name;
+                self.save_now();
+                self.send_state();
+            }
+            EngineCommand::DeleteProfile { name } => {
+                if name == self.app.profile_name {
+                    return;
+                }
+                if let Err(e) = crate::persist::delete_profile(&name) {
+                    tracing::warn!("could not delete profile {name}: {e}");
+                }
+                self.send_state();
+            }
+            EngineCommand::CycleProfile { step } => {
+                self.refresh_profiles();
+                let names = &self.app.profiles;
+                if names.len() < 2 {
+                    return;
+                }
+                let cur = names
+                    .iter()
+                    .position(|n| *n == self.app.profile_name)
+                    .unwrap_or(0) as i64;
+                let next = (cur + step as i64).rem_euclid(names.len() as i64) as usize;
+                let name = names[next].clone();
+                self.switch_profile(&name);
+            }
             EngineCommand::Shutdown => unreachable!("handled by caller"),
         }
     }
@@ -658,6 +955,7 @@ fn run(
         dirty: false,
         seq: 0,
         meters_on: true,
+        pending_retarget: HashMap::new(),
     }));
 
     // --- registry events -> model + binding + reconcile ---
@@ -674,8 +972,10 @@ fn run(
                         let Some(props) = global.props else { return };
                         let Some(n) = parse::node(global.id, props) else { return };
                         let name = n.name.clone();
+                        let serial = n.serial;
                         let is_device = n.media_class == "Audio/Sink" || n.media_class == "Audio/Source";
                         e.model.nodes.insert(global.id, n);
+                        e.retarget_streams(&name, serial);
                         if e.wanted_controls.contains(&name) && !e.nodes.contains_key(&name) {
                             if let Some(registry) = registry_weak.upgrade() {
                                 if let Ok(node) = registry.bind::<Node, _>(global) {
@@ -751,6 +1051,11 @@ fn run(
                 {
                     let Engine { links, model, .. } = &mut *e;
                     links.prune_dead(model);
+                }
+                // A reloaded node's replacement can finish arriving before the
+                // old one is gone; reconcile now that the name is unambiguous.
+                if e.built {
+                    e.reconcile();
                 }
                 if let Some(name) = removed_name {
                     // Drop stale proxies so the node re-binds if it reappears

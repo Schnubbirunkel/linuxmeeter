@@ -30,6 +30,20 @@ OBS, or any recorder can use.
 - **Profiles** — everything persists to `~/.config/linuxmeeter/` (TOML,
   hand-editable) and restores on launch; tray icon + close-to-tray +
   optional autostart keep your devices alive from login
+- **Rename anything** — double-click a strip or bus name. The new name is
+  also what other programs show for the virtual device (Discord, OBS, your
+  desktop's volume control); programs using it are moved back after the
+  device is re-created
+- **Profile switching** — the profile menu in the top bar switches, saves
+  and deletes profiles; switching between profiles with the same strips only
+  changes levels and routes, so audio keeps flowing
+- **Desktop notifications** — profile switches and shortcut actions show a
+  notification even while the window is hidden (toggle in Settings)
+- **Global shortcuts** — `linuxmeeter ctl toggle-mute|volume-up|volume-down
+  <channel>`, `ctl profile-next` and more control the running mixer; bind
+  them to keys in your desktop's shortcut settings. Settings (gear icon)
+  lists the exact command for every strip and bus. `linuxmeeter ctl help`
+  for everything
 - **Clean by design** — all virtual devices live in-process and vanish
   completely when the app exits; WirePlumber is never left managing our
   volumes
