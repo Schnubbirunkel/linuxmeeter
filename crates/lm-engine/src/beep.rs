@@ -5,6 +5,8 @@
 //! output (never through the mixer, so it cannot leak into a virtual mic);
 //! the engine drops it once it has played.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use libspa::pod::Pod;
@@ -20,6 +22,14 @@ const FADE_MS: u32 = 6;
 const AMPLITUDE: f32 = 0.2;
 const LOW_HZ: f32 = 587.33; // D5
 const HIGH_HZ: f32 = 880.0; // A5
+/// Silence before the notes: the first buffers after a device wakes from
+/// suspend are often lost.
+const LEAD_MS: u32 = 60;
+/// Silence after them, so the stream is not dropped while the last notes are
+/// still in the device's buffer.
+const TAIL_MS: u32 = 400;
+/// A beep that never gets to play (no device, stuck link) is dropped after this.
+const GIVE_UP: Duration = Duration::from_secs(6);
 
 /// Mono samples of the beep at `rate`: high→low for mute, low→high for live.
 pub fn samples(rising: bool, rate: u32) -> Vec<f32> {
@@ -42,9 +52,14 @@ pub fn samples(rising: bool, rate: u32) -> Vec<f32> {
     out
 }
 
-/// One playing beep; keep it alive until `done_at`, then drop it.
+/// One playing beep. Keep it until `is_done`: it has to wait for the link
+/// and for the device to wake up, which on real hardware (Bluetooth above
+/// all) can take a second or more — a fixed lifetime cut it off unheard.
 pub struct Beep {
-    pub done_at: Instant,
+    started: Instant,
+    /// Frames the process callback has written so far (lead + notes + tail).
+    played: Arc<AtomicUsize>,
+    total: usize,
     _stream: StreamRc,
     _listener: StreamListener<usize>,
 }
@@ -56,7 +71,6 @@ impl Beep {
         let mut props = properties! {
             *pipewire::keys::MEDIA_TYPE => "Audio",
             *pipewire::keys::MEDIA_CATEGORY => "Playback",
-            *pipewire::keys::MEDIA_ROLE => "Notification",
             *pipewire::keys::NODE_NAME => "lm.beep",
             *pipewire::keys::NODE_DESCRIPTION => "linuxmeeter microphone tone",
             *pipewire::keys::APP_NAME => "linuxmeeter",
@@ -66,8 +80,13 @@ impl Beep {
             props.insert("target.object", t);
         }
         let stream = StreamRc::new(core, "lm.beep", props)?;
-        let wave = samples(rising, RATE);
-        let len = wave.len();
+        let lead = (RATE * LEAD_MS / 1000) as usize;
+        let tail = (RATE * TAIL_MS / 1000) as usize;
+        let mut wave = vec![0.0; lead];
+        wave.extend(samples(rising, RATE));
+        let total = wave.len() + tail;
+        let played = Arc::new(AtomicUsize::new(0));
+        let played_cb = played.clone();
 
         // user data = read position in `wave`; after the end, silence.
         let listener = stream
@@ -86,6 +105,7 @@ impl Beep {
                     slice[f * STRIDE..f * STRIDE + 4].copy_from_slice(&bytes);
                     slice[f * STRIDE + 4..f * STRIDE + 8].copy_from_slice(&bytes);
                 }
+                played_cb.store(*pos, Ordering::Relaxed);
                 let chunk = data.chunk_mut();
                 *chunk.offset_mut() = 0;
                 *chunk.stride_mut() = STRIDE as i32;
@@ -121,9 +141,24 @@ impl Beep {
             &mut params,
         )?;
 
-        // Linking and the device's latency come on top of the tone itself.
-        let done_at = Instant::now() + Duration::from_millis((len as u64 * 1000) / RATE as u64 + 600);
-        Ok(Self { done_at, _stream: stream, _listener: listener })
+        Ok(Self { started: Instant::now(), played, total, _stream: stream, _listener: listener })
+    }
+
+    /// Played to the end (with its tail), or given up on.
+    pub fn is_done(&self, now: Instant) -> bool {
+        let played = self.played.load(Ordering::Relaxed);
+        if played >= self.total {
+            tracing::debug!("warning tone played");
+            return true;
+        }
+        if now.duration_since(self.started) > GIVE_UP {
+            tracing::warn!(
+                "warning tone never reached a device ({played} of {} frames written); is the output device available?",
+                self.total
+            );
+            return true;
+        }
+        false
     }
 }
 

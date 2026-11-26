@@ -1122,7 +1122,9 @@ impl Engine {
                     .default_sink
                     .clone()
                     .or_else(|| self.app.buses.iter().find_map(|b| b.target_hw_key.clone()));
-                self.beeps.retain(|b| b.done_at > std::time::Instant::now());
+                let now = std::time::Instant::now();
+                self.beeps.retain(|b| !b.is_done(now));
+                tracing::info!("warning tone ({}) -> {}", if rising { "mics live" } else { "mics muted" }, target.as_deref().unwrap_or("default output"));
                 match crate::beep::Beep::play(self.core.clone(), target.as_deref(), rising) {
                     Ok(b) => self.beeps.push(b),
                     Err(e) => tracing::warn!("warning tone failed: {e}"),
@@ -1408,7 +1410,7 @@ fn run(
             let mut e = engine.borrow_mut();
             if !e.beeps.is_empty() {
                 let now = std::time::Instant::now();
-                e.beeps.retain(|b| b.done_at > now);
+                e.beeps.retain(|b| !b.is_done(now));
             }
             if !e.built || !e.meters_on {
                 return;

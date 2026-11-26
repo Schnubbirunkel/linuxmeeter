@@ -85,5 +85,6 @@ if [ $status -ne 0 ]; then
   echo "--- pipewire log"; tail -20 "$T/pipewire.log"
   echo "--- links while playing"; cat "$T/links.txt"
 fi
+grep -i "warning tone" "$T/app.log" | sed "s/^/  app: /" | cut -c1-160
 pkill -f "linuxmeeter$" ; pkill wireplumber; pkill -x pipewire; pkill Xvfb
 exit $status
