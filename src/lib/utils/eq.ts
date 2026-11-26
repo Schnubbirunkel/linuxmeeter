@@ -53,7 +53,16 @@ function coeffs(band: EqBand): Biquad {
         a1: 2 * (A - 1 - (A + 1) * cos),
         a2: A + 1 - (A - 1) * cos - 2 * sqA * alpha,
       };
+    case "low_cut": // high-pass; gain does not apply
+      return { b0: (1 + cos) / 2, b1: -(1 + cos), b2: (1 + cos) / 2, a0: 1 + alpha, a1: -2 * cos, a2: 1 - alpha };
+    case "high_cut": // low-pass
+      return { b0: (1 - cos) / 2, b1: 1 - cos, b2: (1 - cos) / 2, a0: 1 + alpha, a1: -2 * cos, a2: 1 - alpha };
   }
+}
+
+/** Cut filters have no gain; their handle sits on the 0 dB line. */
+export function hasGain(kind: EqBand["kind"]): boolean {
+  return kind !== "low_cut" && kind !== "high_cut";
 }
 
 /** |H(e^jw)| in dB for one biquad at frequency f. */

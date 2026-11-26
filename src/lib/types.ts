@@ -30,7 +30,9 @@ export interface LimiterParams {
   releaseMs: number;
 }
 
-export type EqBandKind = "low_shelf" | "peak" | "high_shelf";
+export type EqBandKind = "low_shelf" | "peak" | "high_shelf" | "low_cut" | "high_cut";
+/** Panel bands the 16-band plugin leaves room for (lm_protocol::MAX_EQ_BANDS). */
+export const MAX_EQ_BANDS = 12;
 
 export interface EqBand {
   kind: EqBandKind;
@@ -41,7 +43,10 @@ export interface EqBand {
 
 export interface EqParams {
   enabled: boolean;
+  /** The EQ panel's bands, 0..MAX_EQ_BANDS. */
   bands: EqBand[];
+  /** The voice-color pad's four bands. */
+  color: EqBand[];
 }
 
 export interface StripState {

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { EqBand, StripState } from "../lib/types";
+  import { MAX_EQ_BANDS, type EqBand, type EqBandKind, type StripState } from "../lib/types";
   import { mixer } from "../lib/state/mixer.svelte";
   import { ui } from "../lib/state/ui.svelte";
-  import { EQ_FMAX, EQ_FMIN, freqToX, responseCurve, xToFreq } from "../lib/utils/eq";
+  import { EQ_FMAX, EQ_FMIN, freqToX, hasGain, responseCurve, xToFreq } from "../lib/utils/eq";
 
   interface Props {
     strip: StripState;
@@ -13,24 +13,45 @@
   const H = 180;
   const DB_RANGE = 18; // ±18 dB display
 
-  import { onMount } from "svelte";
-
   let canvas: HTMLCanvasElement;
   let selected = $state(0);
   let dragging = $state(false);
 
-  onMount(() => {
-    // Untangle crossed bands from older sessions: keep kinds in place,
-    // redistribute the frequencies in ascending order.
-    const freqs = strip.eq.bands.slice(0, 4).map((b) => b.freqHz);
-    const sorted = [...freqs].sort((a, b) => a - b);
-    if (freqs.some((f, i) => f !== sorted[i])) {
-      const bands = strip.eq.bands.map((b, i) => (i < 4 ? { ...b, freqHz: sorted[i]! } : b));
-      mixer.setEqParams(strip.id, { ...strip.eq, bands });
-    }
-  });
+  const KIND_LABEL: Record<EqBandKind, string> = {
+    low_cut: "LO CUT",
+    low_shelf: "LOW",
+    peak: "PEAK",
+    high_shelf: "HIGH",
+    high_cut: "HI CUT",
+  };
+  const KINDS: EqBandKind[] = ["low_cut", "low_shelf", "peak", "high_shelf", "high_cut"];
+  let full = $derived(strip.eq.bands.length >= MAX_EQ_BANDS);
 
-  const KIND_LABEL = { low_shelf: "LOW", peak: "PEAK", high_shelf: "HIGH" } as const;
+  function bandY(b: EqBand): number {
+    return yForDb(hasGain(b.kind) ? b.gainDb : 0);
+  }
+
+  function setBands(bands: EqBand[]) {
+    mixer.setEqParams(strip.id, { ...strip.eq, bands, enabled: true });
+  }
+
+  function addBand(freqHz = 1000, gainDb = 0) {
+    if (full) return;
+    setBands([...strip.eq.bands, { kind: "peak", freqHz: Math.round(freqHz), gainDb: Math.round(gainDb * 10) / 10, q: 1 }]);
+    selected = strip.eq.bands.length - 1;
+  }
+
+  function removeBand(i: number) {
+    setBands(strip.eq.bands.filter((_, j) => j !== i));
+    selected = Math.max(0, Math.min(selected, strip.eq.bands.length - 1));
+  }
+
+  function cycleKind(i: number) {
+    const b = strip.eq.bands[i];
+    if (!b) return;
+    const kind = KINDS[(KINDS.indexOf(b.kind) + 1) % KINDS.length]!;
+    setBand(i, { kind, q: kind === "peak" ? 1 : 0.7 });
+  }
   const GRID_FREQS = [50, 100, 200, 500, 1000, 2000, 5000, 10000];
 
   function yForDb(db: number): number {
@@ -97,7 +118,7 @@
     }
 
     // response curve
-    const curve = responseCurve(eq.bands, 160);
+    const curve = responseCurve([...eq.bands, ...eq.color], 160);
     ctx.strokeStyle = eq.enabled ? col("--accent") : col("--text-3");
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -117,9 +138,9 @@
     ctx.fill();
 
     // band handles
-    eq.bands.slice(0, 4).forEach((b, i) => {
+    eq.bands.forEach((b, i) => {
       const x = freqToX(b.freqHz, W);
-      const y = yForDb(b.gainDb);
+      const y = bandY(b);
       ctx.beginPath();
       ctx.arc(x, y, i === sel ? 6 : 5, 0, Math.PI * 2);
       ctx.fillStyle = col("--bg-2");
@@ -141,9 +162,9 @@
   function bandAt(mx: number, my: number): number | null {
     let best: number | null = null;
     let bestDist = 14;
-    strip.eq.bands.slice(0, 4).forEach((b, i) => {
+    strip.eq.bands.forEach((b, i) => {
       const dx = freqToX(b.freqHz, W) - mx;
-      const dy = yForDb(b.gainDb) - my;
+      const dy = bandY(b) - my;
       const d = Math.hypot(dx, dy);
       if (d < bestDist) {
         bestDist = d;
@@ -170,19 +191,11 @@
   function onpointermove(e: PointerEvent) {
     if (!dragging) return;
     const [mx, my] = canvasPos(e);
-    // Bands cannot cross: keep each band between its neighbors (small margin)
-    // so LOW/PEAK/PEAK/HIGH always appear left-to-right in chip order.
-    const bands = strip.eq.bands;
-    let lo = selected > 0 ? bands[selected - 1]!.freqHz * 1.1 : EQ_FMIN;
-    let hi = selected < 3 ? bands[selected + 1]!.freqHz / 1.1 : EQ_FMAX;
-    lo = Math.max(EQ_FMIN, lo);
-    hi = Math.max(lo, Math.min(EQ_FMAX, hi));
-    const freqHz = Math.max(lo, Math.min(hi, xToFreq(mx, W)));
+    const b = strip.eq.bands[selected];
+    if (!b) return;
+    const freqHz = Math.max(EQ_FMIN, Math.min(EQ_FMAX, xToFreq(mx, W)));
     const gainDb = Math.max(-DB_RANGE, Math.min(DB_RANGE, dbForY(my)));
-    setBand(selected, {
-      freqHz: Math.round(freqHz),
-      gainDb: Math.round(gainDb * 10) / 10,
-    });
+    setBand(selected, hasGain(b.kind) ? { freqHz: Math.round(freqHz), gainDb: Math.round(gainDb * 10) / 10 } : { freqHz: Math.round(freqHz) });
   }
   function onpointerup() {
     dragging = false;
@@ -190,7 +203,8 @@
   function ondblclick(e: MouseEvent) {
     const [mx, my] = canvasPos(e as unknown as PointerEvent);
     const hit = bandAt(mx, my);
-    if (hit !== null) setBand(hit, { gainDb: 0 });
+    if (hit !== null) removeBand(hit);
+    else addBand(xToFreq(mx, W), dbForY(my));
   }
   function onwheel(e: WheelEvent) {
     e.preventDefault();
@@ -234,7 +248,6 @@
               { kind: "peak", freqHz: 400, gainDb: 0, q: 1 },
               { kind: "peak", freqHz: 2500, gainDb: 0, q: 1 },
               { kind: "high_shelf", freqHz: 8000, gainDb: 0, q: 0.7 },
-              ...strip.eq.bands.slice(4),
             ],
           })}
       >
@@ -257,16 +270,31 @@
       {onpointerup}
       {ondblclick}
       {onwheel}
-      title="Drag dots: freq/gain · wheel: Q · double-click: reset band"
+      title="Drag a point: frequency/gain · wheel: Q · double-click empty space: add a point · double-click a point: remove it"
     ></canvas>
 
     <div class="bands">
-      {#each strip.eq.bands.slice(0, 4) as b, i}
-        <button class="band" class:sel={i === selected} onclick={() => (selected = i)}>
-          <span class="kind">{KIND_LABEL[b.kind]}</span>
-          <span class="vals">{fmtFreq(b.freqHz)}Hz {b.gainDb > 0 ? "+" : ""}{b.gainDb.toFixed(1)}dB Q{b.q.toFixed(1)}</span>
-        </button>
+      {#each strip.eq.bands as b, i}
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <div class="band" class:sel={i === selected} onclick={() => (selected = i)}>
+          <div class="bhead">
+            <button class="kind" title="Change filter type" onclick={() => cycleKind(i)}>{KIND_LABEL[b.kind]}</button>
+            <button class="bdel" title="Remove this point" onclick={(e) => (e.stopPropagation(), removeBand(i))}>
+              <svg width="7" height="7" viewBox="0 0 12 12"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" stroke-width="1.8" /></svg>
+            </button>
+          </div>
+          <span class="vals">
+            {fmtFreq(b.freqHz)}Hz{#if hasGain(b.kind)}&nbsp;{b.gainDb > 0 ? "+" : ""}{b.gainDb.toFixed(1)}dB{/if}
+            Q{b.q.toFixed(1)}
+          </span>
+        </div>
       {/each}
+      {#if !full}
+        <button class="band add" title="Add a point (or double-click the curve)" onclick={() => addBand()}>
+          <span class="kind">+ ADD</span>
+          <span class="vals">{strip.eq.bands.length}/{MAX_EQ_BANDS}</span>
+        </button>
+      {/if}
     </div>
   </div>
 </div>
@@ -350,6 +378,7 @@
     gap: 4px;
   }
   .band {
+    cursor: default;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -366,10 +395,39 @@
   .band.sel {
     border-color: var(--accent);
   }
+  .bhead {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
   .kind {
     font-size: 9px;
     letter-spacing: 0.08em;
     color: var(--text-2);
+  }
+  button.kind:hover {
+    color: var(--text-1);
+    text-decoration: underline;
+  }
+  .bdel {
+    width: 12px;
+    height: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-3);
+    border-radius: 2px;
+  }
+  .bdel:hover {
+    background: var(--mute);
+    color: #fff;
+  }
+  .band.add {
+    border-style: dashed;
+    cursor: pointer;
+  }
+  .band.add .kind {
+    color: var(--text-3);
   }
   .band.sel .kind {
     color: var(--accent);

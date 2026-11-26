@@ -47,6 +47,8 @@ const defaultEq = () => ({
     { kind: "peak" as const, freqHz: 400, gainDb: 0, q: 1 },
     { kind: "peak" as const, freqHz: 2500, gainDb: 0, q: 1 },
     { kind: "high_shelf" as const, freqHz: 8000, gainDb: 0, q: 0.7 },
+  ],
+  color: [
     { kind: "low_shelf" as const, freqHz: 300, gainDb: 0, q: 0.7 },
     { kind: "peak" as const, freqHz: 400, gainDb: 0, q: 0.8 },
     { kind: "peak" as const, freqHz: 3000, gainDb: 0, q: 0.8 },
@@ -181,7 +183,7 @@ export const mockIpc: Ipc = {
   },
   setEqParams: (stripId, params) => {
     const s = findStrip(stripId);
-    if (s) s.eq = structuredClone(params);
+    if (s) s.eq = JSON.parse(JSON.stringify(params));
     return Promise.resolve();
   },
   setLimiterParams: (bus, params) => {

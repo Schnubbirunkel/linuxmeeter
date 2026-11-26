@@ -1,6 +1,6 @@
 <script lang="ts">
   /** VoiceMeeter-style "voice color" XY pad. Drives its OWN four EQ bands
-   *  (indices 4..7, voice-tuned corners at 300 Hz / 400 Hz / 3 kHz / 3.5 kHz)
+   *  (`eq.color`, voice-tuned corners at 300 Hz / 400 Hz / 3 kHz / 3.5 kHz)
    *  so it stays strong regardless of how the EQ-panel bands are set:
    *  X = dark ↔ bright (±10 dB tilt across the voice range)
    *  Y = warm ↔ present (+10 dB at 3 kHz, with an inverse 400 Hz mud cut)
@@ -17,18 +17,18 @@
   const TILT_DB = 10;
   const PRESENCE_DB = 10;
   const MUD_DB = 5;
-  const B = { lowTilt: 4, mud: 5, presence: 6, highTilt: 7 } as const;
+  const B = { lowTilt: 0, mud: 1, presence: 2, highTilt: 3 } as const;
 
   let pad: HTMLDivElement;
   let dragging = $state(false);
 
   let x = $derived.by(() => {
-    const low = strip.eq.bands[B.lowTilt]?.gainDb ?? 0;
-    const high = strip.eq.bands[B.highTilt]?.gainDb ?? 0;
+    const low = strip.eq.color[B.lowTilt]?.gainDb ?? 0;
+    const high = strip.eq.color[B.highTilt]?.gainDb ?? 0;
     return Math.max(-1, Math.min(1, (high - low) / (2 * TILT_DB)));
   });
   let y = $derived.by(() => {
-    const presence = strip.eq.bands[B.presence]?.gainDb ?? 0;
+    const presence = strip.eq.color[B.presence]?.gainDb ?? 0;
     return Math.max(-1, Math.min(1, presence / PRESENCE_DB));
   });
   let neutral = $derived(Math.abs(x) < 0.02 && Math.abs(y) < 0.02);
@@ -36,14 +36,14 @@
   function setPad(nx: number, ny: number) {
     nx = Math.max(-1, Math.min(1, nx));
     ny = Math.max(-1, Math.min(1, ny));
-    const bands = strip.eq.bands.map((b, i) => {
+    const color = strip.eq.color.map((b, i) => {
       if (i === B.lowTilt) return { ...b, gainDb: Math.round(-nx * TILT_DB * 10) / 10 };
       if (i === B.highTilt) return { ...b, gainDb: Math.round(nx * TILT_DB * 10) / 10 };
       if (i === B.presence) return { ...b, gainDb: Math.round(ny * PRESENCE_DB * 10) / 10 };
       if (i === B.mud) return { ...b, gainDb: Math.round(-ny * MUD_DB * 10) / 10 };
       return b;
     });
-    mixer.setEqParams(strip.id, { ...strip.eq, bands, enabled: true });
+    mixer.setEqParams(strip.id, { ...strip.eq, color, enabled: true });
   }
 
   function posFromEvent(e: PointerEvent): [number, number] {
