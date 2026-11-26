@@ -9,7 +9,7 @@
   }
   let { strip }: Props = $props();
 
-  const W = 396;
+  const W = 456;
   const H = 180;
   const DB_RANGE = 18; // ±18 dB display
 
@@ -310,7 +310,7 @@
     justify-content: center;
   }
   .panel {
-    width: 420px;
+    width: 480px;
     background: var(--bg-2);
     border: 1px solid var(--border-1);
     border-radius: 6px;

@@ -1,8 +1,9 @@
 name: Release
 
-# Builds an Arch package + plain tarball. On a tag (v0.2.0 or 0.2.0), or on a
-# push to main whose version already has a tag, they are attached to that
-# tag's GitHub release.
+# Builds an Arch package + plain tarball and publishes them as a GitHub
+# release. A push to main whose version (pkgver in packaging/release/PKGBUILD)
+# has no release yet creates tag + release; a later push of the same version,
+# or pushing a tag, updates that release's files. Notes: packaging/release/NOTES.md.
 on:
   push:
     tags: ["v*", "[0-9]*"]
@@ -33,6 +34,8 @@ jobs:
           else
             V=$(sed -n 's/^pkgver=//p' packaging/release/PKGBUILD)
             TAG=$(git tag -l "v$V" "$V" | head -1)
+            # A new version on main: release it.
+            if [ -z "$TAG" ] && [ "$GITHUB_REF" = refs/heads/main ]; then TAG="$V"; fi
           fi
           echo "name=$TAG" >> "$GITHUB_OUTPUT"
           echo "release tag: ${TAG:-none (artifacts only)}"
@@ -66,13 +69,6 @@ jobs:
           files: |
             packaging/release/linuxmeeter-*.pkg.tar.zst
             linuxmeeter-*-x86_64.tar.gz
-          body: |
-            Fork of [dslapelis/linuxmeeter](https://github.com/dslapelis/linuxmeeter) with:
-
-            - **Rename strips and buses** (double-click the name). Other programs see the new device name; streams using it are moved back after the rename.
-            - **Profile switching**: switch, save as new, delete from the top bar.
-            - **Desktop notifications** for profile switches and shortcut actions, also while the window is hidden.
-            - **Global shortcuts** via `linuxmeeter ctl toggle-mute|volume-up|volume-down <channel>`, `ctl profile-next`, … Settings (gear icon) lists the command for every strip and bus.
-
-            Arch: `sudo pacman -U linuxmeeter-*.pkg.tar.zst`
-            Needs PipeWire (`pipewire-audio`) with WirePlumber, `lsp-plugins-lv2`, `webkit2gtk-4.1`, `gtk3`, `libayatana-appindicator`.
+          name: linuxmeeter ${{ steps.tag.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          body_path: packaging/release/NOTES.md
