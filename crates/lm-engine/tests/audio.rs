@@ -636,9 +636,10 @@ fn eq_bands_in_every_slot_range_shape_the_signal() {
     assert!(flat - cut > 20.0, "low cut barely changed the level: {flat:.1} -> {cut:.1} dBFS");
 }
 
-/// The bus limiter: below its threshold it must not change the level (no
-/// "gain boost"); above it, it holds the peak at the threshold; switched off,
-/// it does nothing at all.
+/// The bus limiter: below its threshold it must not change the level (LSP's
+/// "gain boost" adds the threshold back, its automatic level regulation (ALR)
+/// pulls a -6 dBFS signal down ~3 dB under a -1 dB threshold — both off);
+/// above it, it holds the peak at the threshold; switched off, it does nothing.
 #[test]
 #[ignore = "requires a PipeWire daemon; run with `make test-audio`"]
 fn bus_limiter_is_transparent_below_limits_above_and_off_when_disabled() {
@@ -649,6 +650,7 @@ fn bus_limiter_is_transparent_below_limits_above_and_off_when_disabled() {
             &params::filter_params(&[
                 ("lim:enabled", enabled),
                 ("lim:boost", 0.0),
+                ("lim:alr", 0.0),
                 ("lim:th", params::db_to_linear(-1.0)),
                 ("lim:rt", 50.0),
             ]),
@@ -670,26 +672,3 @@ fn bus_limiter_is_transparent_below_limits_above_and_off_when_disabled() {
     assert!((off + 3.0).abs() < 0.5, "disabled limiter still acts: {off:.2} dBFS");
 }
 
-/// Diagnostic (temporary): bus output level of a -6 dBFS tone for each
-/// combination of the LSP limiter's switches. Always fails to show the table.
-#[test]
-#[ignore = "requires a PipeWire daemon; run with `make test-audio`"]
-fn zz_limiter_switch_table() {
-    let (rig, _strip_meter, bus_meter, _s, b) = full_chain(0.5);
-    let mut table = String::new();
-    for (en, boost, alr) in [(1.0, 1.0, 1.0), (1.0, 0.0, 1.0), (1.0, 1.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 1.0)] {
-        rig.set_props(
-            &b.in_node(),
-            &params::filter_params(&[
-                ("lim:enabled", en),
-                ("lim:boost", boost),
-                ("lim:alr", alr),
-                ("lim:th", params::db_to_linear(-1.0)),
-            ]),
-        );
-        rig.settle(700);
-        let m = rig.measure(&bus_meter, 500);
-        table += &format!("\n  enabled={en} boost={boost} alr={alr}: peak {:.2} dBFS", m[0]);
-    }
-    panic!("limiter table:{table}");
-}

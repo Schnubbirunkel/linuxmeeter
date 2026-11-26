@@ -1,5 +1,11 @@
 Fork of [dslapelis/linuxmeeter](https://github.com/dslapelis/linuxmeeter).
 
+## New in 0.4.1
+
+- **Fix: the microphone warning tone did not play** on real hardware. The tone's stream was closed after a fixed 0.8 s — before a sound card waking from standby (or a Bluetooth headset) was ready. It now stays until the tone has actually played.
+- **Bus limiter ON/OFF button** next to its knob. Moving the knob no longer switches the limiter back on.
+- **Fix: buses were about 2 dB quieter than set.** LSP's limiter defaults (automatic level regulation and gain boost) changed the level even far below the threshold. Below the threshold the limiter is now transparent; it only acts on peaks above it.
+
 ## New in 0.4.0
 
 - **Debian package**: `linuxmeeter_0.4.0_amd64.deb` for Debian 13 (trixie). Built, installed with apt and smoke-tested on trixie with PipeWire, WirePlumber and the real LSP plugins.
@@ -15,10 +21,10 @@ Add/remove strips and buses (up to 16 strips, A1–A4, B1–B3), devices visible
 
 **Arch Linux**
 
-    sudo pacman -U linuxmeeter-0.4.0-1-x86_64.pkg.tar.zst
+    sudo pacman -U linuxmeeter-0.4.1-1-x86_64.pkg.tar.zst
 
 **Debian 13 (trixie)**
 
-    sudo apt install ./linuxmeeter_0.4.0_amd64.deb
+    sudo apt install ./linuxmeeter_0.4.1_amd64.deb
 
 Both pull in PipeWire, WirePlumber, `lsp-plugins-lv2` and the WebKitGTK / tray libraries.

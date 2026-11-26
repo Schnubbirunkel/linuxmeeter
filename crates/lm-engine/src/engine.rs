@@ -827,9 +827,13 @@ impl Engine {
         let l = &bus.limiter;
         let pairs: Vec<(&str, f32)> = vec![
             ("lim:enabled", l.enabled as u32 as f32),
-            // LSP's limiter otherwise lifts its output by the threshold's
-            // distance from 0 dB ("gain boost"); a bus should stay at unity.
+            // A bus limiter is a safety net, transparent below its threshold.
+            // LSP's defaults are not: "gain boost" lifts the output by the
+            // threshold's distance from 0 dB, and automatic level regulation
+            // (ALR) already pulls signals well under the threshold down —
+            // measured -6 dBFS in -> -7.86 out at a -1 dB threshold.
             ("lim:boost", 0.0),
+            ("lim:alr", 0.0),
             ("lim:th", params::db_to_linear(l.threshold_db)),
             ("lim:rt", l.release_ms),
         ];
