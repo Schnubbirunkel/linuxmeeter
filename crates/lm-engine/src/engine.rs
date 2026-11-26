@@ -1033,6 +1033,19 @@ impl Engine {
             EngineCommand::RemoveStrip { strip } => self.remove_strip(strip),
             EngineCommand::AddBus { hardware } => self.add_bus(hardware),
             EngineCommand::RemoveBus { bus } => self.remove_bus(bus),
+            EngineCommand::ImportProfiles { files, active } => {
+                for (name, text) in &files {
+                    let Some(name) = lm_protocol::clean_profile_name(name) else { continue };
+                    if let Err(e) = crate::persist::save_profile_text(&name, text) {
+                        tracing::warn!("import of profile {name} failed: {e}");
+                    }
+                }
+                let active = lm_protocol::clean_profile_name(&active).unwrap_or_else(|| self.app.profile_name.clone());
+                match crate::persist::load_profile(&active) {
+                    Some(p) => self.apply_profile(active, p),
+                    None => self.send_state(),
+                }
+            }
             EngineCommand::SetMicsMute { mute } => {
                 for s in self.app.strips.iter_mut().filter(|s| s.kind == StripKind::Hardware) {
                     s.mute = mute;

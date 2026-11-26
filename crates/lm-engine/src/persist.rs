@@ -88,6 +88,23 @@ pub fn list_profiles() -> Vec<String> {
     names
 }
 
+/// Profile file contents as TOML, for backups.
+pub fn profile_toml(profile: &Profile) -> io::Result<String> {
+    toml::to_string_pretty(profile).map_err(io::Error::other)
+}
+
+pub fn read_profile_text(name: &str) -> Option<String> {
+    fs::read_to_string(config_dir().join("profiles").join(format!("{name}.toml"))).ok()
+}
+
+/// Write a profile from backup text after checking that it parses.
+pub fn save_profile_text(name: &str, text: &str) -> io::Result<()> {
+    toml::from_str::<Profile>(text).map_err(io::Error::other)?;
+    let dir = config_dir().join("profiles");
+    fs::create_dir_all(&dir)?;
+    atomic_write(&dir.join(format!("{name}.toml")), text)
+}
+
 pub fn delete_profile(name: &str) -> io::Result<()> {
     fs::remove_file(config_dir().join("profiles").join(format!("{name}.toml")))
 }

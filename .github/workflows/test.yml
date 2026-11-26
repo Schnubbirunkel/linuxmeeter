@@ -19,5 +19,12 @@ jobs:
         run: cargo test -p lm-protocol -p lm-engine
       - name: Unit tests (frontend)
         run: pnpm install --frozen-lockfile --config.strict-dep-builds=false && pnpm test
+      - name: Diagnostics
+        run: |
+          pacman -Ql pipewire | grep -i -E "filter|lv2" || true
+          ls /usr/lib/spa-0.2/ /usr/lib/spa-0.2/filter-graph 2>&1 || true
+          ls /usr/lib/lv2 | head || true
       - name: Audio integration tests
-        run: ./scripts/with-test-daemon.sh cargo test -p lm-engine --test audio -- --ignored --test-threads=1
+        env:
+          PIPEWIRE_DEBUG: "3"
+        run: ./scripts/with-test-daemon.sh cargo test -p lm-engine --test audio -- --ignored --test-threads=1 strip_module_appears 2>&1 | grep -v -E "^\[D\]" | head -150; ./scripts/with-test-daemon.sh cargo test -p lm-engine --test audio -- --ignored --test-threads=1

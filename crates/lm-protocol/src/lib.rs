@@ -363,6 +363,9 @@ pub enum EngineCommand {
     /// device) or B bus (virtual microphone).
     AddBus { hardware: bool },
     RemoveBus { bus: BusId },
+    /// Restore a backup: write each (profile name, TOML text), then switch to
+    /// `active` without saving the running mixer over it first.
+    ImportProfiles { files: Vec<(String, String)>, active: String },
     /// Mute or unmute every hardware input strip at once; emits `State`.
     SetMicsMute { mute: bool },
     Shutdown,
