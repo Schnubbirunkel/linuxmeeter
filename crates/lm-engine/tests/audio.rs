@@ -669,3 +669,27 @@ fn bus_limiter_is_transparent_below_limits_above_and_off_when_disabled() {
     let off = rig.measure(&bus_meter, 500)[0];
     assert!((off + 3.0).abs() < 0.5, "disabled limiter still acts: {off:.2} dBFS");
 }
+
+/// Diagnostic (temporary): bus output level of a -6 dBFS tone for each
+/// combination of the LSP limiter's switches. Always fails to show the table.
+#[test]
+#[ignore = "requires a PipeWire daemon; run with `make test-audio`"]
+fn zz_limiter_switch_table() {
+    let (rig, _strip_meter, bus_meter, _s, b) = full_chain(0.5);
+    let mut table = String::new();
+    for (en, boost, alr) in [(1.0, 1.0, 1.0), (1.0, 0.0, 1.0), (1.0, 1.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 1.0)] {
+        rig.set_props(
+            &b.in_node(),
+            &params::filter_params(&[
+                ("lim:enabled", en),
+                ("lim:boost", boost),
+                ("lim:alr", alr),
+                ("lim:th", params::db_to_linear(-1.0)),
+            ]),
+        );
+        rig.settle(700);
+        let m = rig.measure(&bus_meter, 500);
+        table += &format!("\n  enabled={en} boost={boost} alr={alr}: peak {:.2} dBFS", m[0]);
+    }
+    panic!("limiter table:{table}");
+}
