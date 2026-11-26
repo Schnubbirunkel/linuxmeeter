@@ -18,7 +18,8 @@ _src() { realpath "$startdir/../.."; }
 
 build() {
   cd "$(_src)"
-  pnpm install --frozen-lockfile
+  # pnpm 11 fails on unapproved build scripts; esbuild works without its own.
+  pnpm install --frozen-lockfile --config.strict-dep-builds=false
   pnpm tauri build --no-bundle
 }
 
