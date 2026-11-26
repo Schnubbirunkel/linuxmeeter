@@ -76,6 +76,7 @@ pub fn virtual_strip_args(sink_name: &str, label: &str, autoconnect_output: bool
         "node.name": format!("{sink_name}.out"),
         "node.description": format!("{label} (out)"),
         "media.class": "Stream/Output/Audio",
+        "audio.position": [ "FL", "FR" ],
         "node.virtual": true,
             "state.restore-props": false,
         "node.dont-reconnect": true,
@@ -142,6 +143,7 @@ pub fn hardware_strip_args(strip_name: &str, label: &str, hw_target: &str) -> St
         "capture.props": {
             "node.name": format!("{strip_name}.cap"),
             "node.description": format!("{label} (capture)"),
+            "audio.position": [ "FL", "FR" ],
             "target.object": hw_target,
             "stream.capture.sink": false,
             "node.dont-reconnect": true,
@@ -152,6 +154,7 @@ pub fn hardware_strip_args(strip_name: &str, label: &str, hw_target: &str) -> St
             "node.name": format!("{strip_name}.out"),
             "node.description": format!("{label} (out)"),
             "media.class": "Stream/Output/Audio",
+            "audio.position": [ "FL", "FR" ],
             "node.autoconnect": false,
             "node.dont-reconnect": true,
             "node.virtual": true,
@@ -172,6 +175,7 @@ pub fn bus_args(bus_name: &str, label: &str, hw_target: Option<&str>) -> String 
             "node.name": format!("{bus_name}.out"),
             "node.description": format!("{label} (out)"),
             "target.object": target,
+            "audio.position": [ "FL", "FR" ],
             "node.dont-reconnect": true,
             "node.virtual": true,
             "state.restore-props": false,
@@ -199,6 +203,7 @@ pub fn bus_args(bus_name: &str, label: &str, hw_target: Option<&str>) -> String 
         "capture.props": {
             "node.name": format!("{bus_name}.in"),
             "node.description": format!("{label} (in)"),
+            "audio.position": [ "FL", "FR" ],
             "media.class": "Stream/Input/Audio",
             "node.autoconnect": false,
             "node.dont-reconnect": true,
@@ -287,6 +292,18 @@ mod tests {
 
     /// The routing matrix owns every link; letting the session manager
     /// autoconnect strip outputs would duplicate audio paths.
+    /// Every stream names its channels, so its ports carry FL/FR and the
+    /// link reconciler pairs them by channel rather than guessing.
+    #[test]
+    fn every_stream_declares_stereo_positions() {
+        for (what, args) in all_args() {
+            let v = parse(&args);
+            for props in every_props_block(&v) {
+                assert_eq!(props.get("audio.position"), Some(&serde_json::json!(["FL", "FR"])), "{what}");
+            }
+        }
+    }
+
     #[test]
     fn strip_outputs_do_not_autoconnect() {
         for args in [

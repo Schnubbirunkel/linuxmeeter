@@ -6,6 +6,7 @@
   import KeyCapture from "./KeyCapture.svelte";
 
   let notifications = $state(true);
+  let micTone = $state(true);
   let exe = $state("linuxmeeter");
   let copied = $state<string | null>(null);
   let available = $state(true);
@@ -20,11 +21,17 @@
   onMount(() => {
     void (async () => {
       notifications = await ipc.getNotifications();
+      micTone = await ipc.getMicTone();
       exe = await ipc.getExePath();
       await loadShortcuts();
     })();
     return ipc.onShortcutsChanged(() => void loadShortcuts());
   });
+
+  function toggleMicTone() {
+    micTone = !micTone;
+    void ipc.setMicTone(micTone);
+  }
 
   function toggleNotifications() {
     notifications = !notifications;
@@ -130,6 +137,16 @@
       </div>
       <button class="toggle" class:active={notifications} aria-pressed={notifications} onclick={toggleNotifications}>
         {notifications ? "ON" : "OFF"}
+      </button>
+    </div>
+
+    <div class="setting">
+      <div>
+        <div class="label">Microphone warning tone</div>
+        <div class="hint">Two short notes on your speakers when the microphones are muted (falling) or go live (rising). Never sent into a virtual mic.</div>
+      </div>
+      <button class="toggle" class:active={micTone} aria-pressed={micTone} onclick={toggleMicTone}>
+        {micTone ? "ON" : "OFF"}
       </button>
     </div>
 

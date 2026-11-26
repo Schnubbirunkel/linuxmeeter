@@ -32,6 +32,9 @@ export interface Ipc {
   saveProfileAs(name: string): Promise<void>;
   deleteProfile(name: string): Promise<void>;
   getNotifications(): Promise<boolean>;
+  /** Warning tone when the microphones are muted / go live. */
+  getMicTone(): Promise<boolean>;
+  setMicTone(on: boolean): Promise<void>;
   setNotifications(on: boolean): Promise<void>;
   /** Absolute path of the app binary, for `<exe> ctl …` shortcut commands. */
   getExePath(): Promise<string>;
@@ -86,6 +89,8 @@ function tauriIpc(): Ipc {
     saveProfileAs: (name) => invoke("save_profile_as", { name }),
     deleteProfile: (name) => invoke("delete_profile", { name }),
     getNotifications: () => invoke("get_notifications"),
+    getMicTone: () => invoke("get_mic_tone"),
+    setMicTone: (on) => invoke("set_mic_tone", { on }),
     setNotifications: (on) => invoke("set_notifications", { on }),
     getExePath: () => invoke("get_exe_path"),
     addStrip: (kind) => invoke("add_strip", { kind }),

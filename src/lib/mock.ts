@@ -102,6 +102,7 @@ function findStrip(id: number): StripState | undefined {
 
 let mockAutostart = false;
 let mockNotifications = true;
+let mockMicTone = true;
 const mockShortcuts: Record<string, string> = { "toggle-mute-mics": "Meta+M" };
 
 function emitState(): void {
@@ -239,6 +240,11 @@ export const mockIpc: Ipc = {
     return Promise.resolve();
   },
   getNotifications: () => Promise.resolve(mockNotifications),
+  getMicTone: () => Promise.resolve(mockMicTone),
+  setMicTone: (on) => {
+    mockMicTone = on;
+    return Promise.resolve();
+  },
   setNotifications: (on) => {
     mockNotifications = on;
     return Promise.resolve();

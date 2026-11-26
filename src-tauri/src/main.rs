@@ -204,6 +204,16 @@ fn delete_profile(data: tauri::State<AppData>, name: String) -> Result<(), Strin
 }
 
 #[tauri::command]
+fn get_mic_tone() -> bool {
+    settings::get().mic_tone
+}
+
+#[tauri::command]
+fn set_mic_tone(on: bool) -> Result<(), String> {
+    settings::update(|s| s.mic_tone = on)
+}
+
+#[tauri::command]
 fn get_notifications(data: tauri::State<AppData>) -> bool {
     data.notifier
         .enabled
@@ -555,6 +565,8 @@ fn main() {
             get_exe_path,
             get_shortcuts,
             set_shortcut,
+            get_mic_tone,
+            set_mic_tone,
             export_settings,
             import_settings,
         ])
@@ -572,6 +584,7 @@ fn main() {
             let pump_state = state.clone();
             let pump_pending = pending.clone();
             let pump_notifier = notifier.clone();
+            let pump_cmd = engine.cmd_tx.clone();
             let mut tray_model = TrayModel::default();
             std::thread::Builder::new()
                 .name("lm-event-pump".into())
@@ -582,6 +595,13 @@ fn main() {
                                 let previous =
                                     pump_state.write().expect("state lock").replace(s.clone());
                                 let _ = handle.emit("state_changed", &s);
+                                if let Some(prev) = &previous {
+                                    if let Some(rising) = control::mic_mute_change(prev, &s) {
+                                        if settings::get().mic_tone {
+                                            let _ = pump_cmd.send(EngineCommand::Beep { rising });
+                                        }
+                                    }
+                                }
                                 if let Some(prev) = previous {
                                     if prev.profile_name != s.profile_name {
                                         pump_notifier.send(notify::Note {

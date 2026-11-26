@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 pub struct Settings {
     #[serde(default = "yes")]
     pub notifications: bool,
+    /// Warning tone when the microphones are muted or go live.
+    #[serde(default = "yes")]
+    pub mic_tone: bool,
     /// Global shortcuts: ctl action ("toggle-mute strip:3") -> keys ("Ctrl+Alt+M").
     #[serde(default)]
     pub shortcuts: BTreeMap<String, String>,
@@ -22,7 +25,7 @@ fn yes() -> bool {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { notifications: true, shortcuts: BTreeMap::new() }
+        Self { notifications: true, mic_tone: true, shortcuts: BTreeMap::new() }
     }
 }
 

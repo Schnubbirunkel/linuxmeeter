@@ -4,6 +4,7 @@
 //! thread that owns the PipeWire main loop. No Tauri dependencies here so the
 //! engine stays testable headless.
 
+pub mod beep;
 pub mod engine;
 pub mod filterchain;
 pub mod links;

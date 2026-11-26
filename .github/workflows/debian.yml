@@ -1,35 +1,56 @@
 name: Debian
 
-# Does linuxmeeter run on Debian? Real PipeWire + LSP plugins in a Debian
-# container, the same audio integration tests as on Arch.
+# Build linuxmeeter on Debian, package it as a .deb, install that with apt,
+# and smoke-test it like a desktop: PipeWire + WirePlumber, a tone through a
+# strip into a virtual microphone, real LSP plugins. On main, the .deb is
+# attached to the release for the current version.
 on:
   push:
     branches: ["**"]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  audio:
+  deb:
     runs-on: ubuntu-latest
     container: debian:trixie
     steps:
-      - name: Install dependencies
+      - name: Install build dependencies
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            ca-certificates curl git build-essential clang libclang-dev pkg-config \
-            pipewire pipewire-bin libpipewire-0.3-dev libspa-0.2-dev libspa-0.2-modules \
-            lsp-plugins-lv2 liblilv-0-0
+            ca-certificates curl git build-essential clang libclang-dev pkg-config dpkg-dev file \
+            libpipewire-0.3-dev libspa-0.2-dev libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev nodejs npm
+          npm install -g pnpm@10
           curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
       - uses: actions/checkout@v4
-      - name: Diagnostics
-        run: |
-          dpkg -l | grep -E "pipewire|libspa|lilv|lsp-plugins" | awk '{print $2, $3}'
-          ls /usr/lib/x86_64-linux-gnu/spa-0.2/filter-graph/ || true
-          apt-cache search pipewire | sort
-          apt-cache search lv2 | grep -i -E "pipewire|spa|filter" || true
-          ldd /usr/lib/x86_64-linux-gnu/spa-0.2/filter-graph/libspa-filter-graph.so | grep -i -E "lilv|lv2" || echo "filter-graph does not link lilv"
-      - name: Audio integration tests
+      - name: Build
         run: |
           . "$HOME/.cargo/env"
-          export RUST_BACKTRACE=1 PIPEWIRE_DEBUG=2
-          ./scripts/with-test-daemon.sh cargo test -p lm-engine --test audio -- --ignored --test-threads=1 --nocapture 2>&1 | tail -150
+          pnpm install --frozen-lockfile --config.strict-dep-builds=false
+          pnpm tauri build --no-bundle
+      - name: Package
+        id: deb
+        run: |
+          V=$(sed -n 's/^pkgver=//p' packaging/release/PKGBUILD)
+          DEB=$(packaging/debian/build-deb.sh "$V" | tail -1)
+          echo "path=$DEB" >> "$GITHUB_OUTPUT"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          dpkg-deb -I "$DEB"
+      - name: Install with apt (checks the dependencies resolve)
+        run: DEBIAN_FRONTEND=noninteractive apt-get install -y "${{ steps.deb.outputs.path }}" xvfb dbus python3
+      - name: Smoke test
+        run: dbus-run-session -- packaging/debian/smoke-test.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linuxmeeter-deb
+          path: ${{ steps.deb.outputs.path }}
+      - name: Attach to the release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.deb.outputs.version }}
+          files: ${{ steps.deb.outputs.path }}

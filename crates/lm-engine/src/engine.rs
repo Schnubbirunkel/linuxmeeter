@@ -67,6 +67,8 @@ struct Engine {
     pre_strip_taps: HashMap<StripId, MeterTap>,
     pre_bus_taps: HashMap<BusId, MeterTap>,
     pre_routes: HashSet<(String, String)>,
+    /// Warning tones still playing.
+    beeps: Vec<crate::beep::Beep>,
     /// Control-node name -> bound proxy (Props target for volume/mute/DSP).
     nodes: HashMap<String, Node>,
     /// Names we want to bind when they appear.
@@ -1113,6 +1115,19 @@ impl Engine {
                     None => self.send_state(),
                 }
             }
+            EngineCommand::Beep { rising } => {
+                // Straight to the hardware: the remembered default device (never
+                // one of ours), else the first A bus's device.
+                let target = self
+                    .default_sink
+                    .clone()
+                    .or_else(|| self.app.buses.iter().find_map(|b| b.target_hw_key.clone()));
+                self.beeps.retain(|b| b.done_at > std::time::Instant::now());
+                match crate::beep::Beep::play(self.core.clone(), target.as_deref(), rising) {
+                    Ok(b) => self.beeps.push(b),
+                    Err(e) => tracing::warn!("warning tone failed: {e}"),
+                }
+            }
             EngineCommand::SetMicsMute { mute } => {
                 for s in self.app.strips.iter_mut().filter(|s| s.kind == StripKind::Hardware) {
                     s.mute = mute;
@@ -1227,6 +1242,7 @@ fn run(
         pre_strip_taps: HashMap::new(),
         pre_bus_taps: HashMap::new(),
         pre_routes: HashSet::new(),
+        beeps: Vec::new(),
         nodes: HashMap::new(),
         wanted_controls: HashSet::new(),
         metadata: None,
@@ -1390,6 +1406,10 @@ fn run(
         let engine = engine.clone();
         mainloop.loop_().add_timer(move |_| {
             let mut e = engine.borrow_mut();
+            if !e.beeps.is_empty() {
+                let now = std::time::Instant::now();
+                e.beeps.retain(|b| b.done_at > now);
+            }
             if !e.built || !e.meters_on {
                 return;
             }

@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 pub struct Note {
     pub key: String,
@@ -34,7 +35,11 @@ impl Notifier {
         std::thread::Builder::new()
             .name("lm-notify".into())
             .spawn(move || {
-                let mut ids: HashMap<String, u32> = HashMap::new();
+                // key -> (notification id, when its bubble times out). Only a
+                // bubble still on screen is replaced: KDE Plasma treats a
+                // replace of an expired notification as a silent update, so
+                // reusing old ids made every later profile switch invisible.
+                let mut ids: HashMap<String, (u32, Instant)> = HashMap::new();
                 while let Ok(note) = rx.recv() {
                     let mut n = notify_rust::Notification::new();
                     n.appname("linuxmeeter")
@@ -50,12 +55,18 @@ impl Notifier {
                             v.clamp(0, 100),
                         ));
                     }
-                    if let Some(id) = ids.get(&note.key) {
-                        n.id(*id);
+                    let now = Instant::now();
+                    if let Some((id, until)) = ids.get(&note.key) {
+                        if now < *until {
+                            n.id(*id);
+                        }
                     }
                     match n.show() {
                         Ok(handle) => {
-                            ids.insert(note.key, handle.id());
+                            // A little short of the timeout, so a replace never
+                            // races the bubble closing.
+                            let visible = Duration::from_millis(note.timeout_ms.max(0) as u64).saturating_sub(Duration::from_millis(300));
+                            ids.insert(note.key, (handle.id(), now + visible));
                         }
                         Err(e) => tracing::warn!("notification failed: {e}"),
                     }

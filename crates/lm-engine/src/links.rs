@@ -105,7 +105,10 @@ impl LinkManager {
 fn match_ports<'a>(outs: &[&'a PortInfo], ins: &[&'a PortInfo]) -> Vec<(&'a PortInfo, &'a PortInfo)> {
     let mut pairs = Vec::new();
     for o in outs {
-        let matched: Vec<_> = ins.iter().filter(|i| i.channel == o.channel).collect();
+        // "UNK" is the absence of a channel, not a channel: two unknowns must
+        // not match each other, or every output links to every input (stereo
+        // collapses to mono at +6 dB). They fall through to index pairing.
+        let matched: Vec<_> = ins.iter().filter(|i| i.channel == o.channel && o.channel != "UNK").collect();
         if !matched.is_empty() {
             pairs.extend(matched.into_iter().map(|i| (*o, *i)));
         } else if outs.len() == 1 {
@@ -199,20 +202,26 @@ mod tests {
         assert!(pairs(&outs, &ins).is_empty());
     }
 
-    /// SHARP EDGE, documented deliberately: when BOTH sides are still
-    /// pre-negotiation, "UNK" compares equal to "UNK", so every output matches
-    /// every input and the index fallback below is never reached — the result
-    /// is a full cross-product, not index pairing.
-    ///
-    /// This heals on the next reconcile once the formats settle (the reconciler
-    /// diffs a full wanted-set and drops the extra links), so it is a transient
-    /// rather than a stuck mis-wiring. It is asserted here so the behaviour
-    /// cannot change silently.
+    /// REGRESSION: when BOTH sides report "UNK", the two unknowns used to
+    /// compare equal, so every output linked to every input — a full
+    /// cross-product. That did not heal: the model reads a port's channel once,
+    /// when the port appears, so ports that never get a channel (filter-chain
+    /// streams without `audio.position`) stayed cross-linked, summing L+R into
+    /// both sides (+6 dB, mono). Unknowns now pair by index like any other
+    /// mismatch.
     #[test]
-    fn both_sides_unknown_cross_links_until_formats_settle() {
+    fn both_sides_unknown_pair_by_index() {
         let outs = [out(10, "UNK"), out(11, "UNK")];
         let ins = [inp(20, "UNK"), inp(21, "UNK")];
-        assert_eq!(pairs(&outs, &ins), vec![(10, 20), (10, 21), (11, 20), (11, 21)]);
+        assert_eq!(pairs(&outs, &ins), vec![(10, 20), (11, 21)]);
+    }
+
+    /// A single unknown output is still treated as mono and fans out.
+    #[test]
+    fn single_unknown_output_fans_out() {
+        let outs = [out(10, "UNK")];
+        let ins = [inp(20, "UNK"), inp(21, "UNK")];
+        assert_eq!(pairs(&outs, &ins), vec![(10, 20), (10, 21)]);
     }
 
     #[test]

@@ -73,6 +73,29 @@ pub enum Notify {
     Mics,
 }
 
+/// Did the microphones (hardware strips) change between two states? Some(true)
+/// = they went live, Some(false) = muted, None = no change (or a profile
+/// switch, which changes everything at once and should not beep).
+pub fn mic_mute_change(prev: &AppState, next: &AppState) -> Option<bool> {
+    if prev.profile_name != next.profile_name {
+        return None;
+    }
+    let (mut muted, mut live) = (0, 0);
+    for s in next.strips.iter().filter(|s| s.kind == lm_protocol::StripKind::Hardware) {
+        match prev.strips.iter().find(|p| p.id == s.id) {
+            Some(p) if !p.mute && s.mute => muted += 1,
+            Some(p) if p.mute && !s.mute => live += 1,
+            _ => {}
+        }
+    }
+    match (muted, live) {
+        (0, 0) => None,
+        (_, 0) => Some(false),
+        (0, _) => Some(true),
+        _ => Some(!mics_muted(next)),
+    }
+}
+
 /// True when there are hardware inputs and every one is muted.
 pub fn mics_muted(state: &AppState) -> bool {
     let mut mics = state.strips.iter().filter(|s| s.kind == lm_protocol::StripKind::Hardware).peekable();
@@ -488,6 +511,22 @@ mod tests {
         assert!(!toggled(&s), "muted mics come back");
         s.strips.retain(|x| x.kind != StripKind::Hardware);
         assert!(!mics_muted(&s), "no mics is not 'muted'");
+    }
+
+    #[test]
+    fn mic_tone_follows_hardware_strip_mutes_only() {
+        let mut a = state();
+        a.strips[0].kind = StripKind::Hardware;
+        let mut b = a.clone();
+        b.strips[0].mute = true;
+        assert_eq!(mic_mute_change(&a, &b), Some(false), "muted");
+        assert_eq!(mic_mute_change(&b, &a), Some(true), "live again");
+        let mut c = a.clone();
+        c.strips[1].mute = true; // a virtual strip
+        assert_eq!(mic_mute_change(&a, &c), None);
+        let mut d = b.clone();
+        d.profile_name = "Gaming".into();
+        assert_eq!(mic_mute_change(&a, &d), None, "profile switches do not beep");
     }
 
     #[test]
