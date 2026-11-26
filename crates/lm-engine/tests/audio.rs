@@ -594,3 +594,44 @@ fn gate_threshold_opens_and_closes_the_signal() {
     );
     assert!(open > -20.0, "gate never reopened (peak {open} dBFS)");
 }
+
+/// The EQ is the 16-band LSP plugin: a peak in a high panel slot and a color
+/// band in the last slots must both reach the audio. A wrong plugin URI or
+/// port name is silent everywhere else.
+#[test]
+#[ignore = "requires a PipeWire daemon; run with `make test-audio`"]
+fn eq_bands_in_every_slot_range_shape_the_signal() {
+    use lm_protocol::{EqBand, EqBandKind, EqParams, MAX_EQ_BANDS};
+    let (rig, strip_meter, _bus_meter, s, _b) = full_chain(0.125); // -18 dBFS, 1 kHz
+    let flat = rig.measure(&strip_meter, 400)[0];
+
+    let flat_band = EqBand { kind: EqBandKind::Peak, freq_hz: 5000.0, gain_db: 0.0, q: 1.0 };
+    let mut eq = EqParams { enabled: true, bands: vec![flat_band; MAX_EQ_BANDS], color: EqParams::color_defaults().to_vec() };
+    eq.bands[MAX_EQ_BANDS - 1] = EqBand { kind: EqBandKind::Peak, freq_hz: 1000.0, gain_db: 12.0, q: 1.0 };
+    let pairs = params::eq_pairs(&eq);
+    let borrowed: Vec<(&str, f32)> = pairs.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+    rig.set_props(&s.control_node(), &params::filter_params(&borrowed));
+    rig.settle(400);
+    let boosted = rig.measure(&strip_meter, 400)[0];
+    assert!((boosted - flat - 12.0).abs() < 2.0, "slot {} peak: {flat:.1} -> {boosted:.1} dBFS", MAX_EQ_BANDS - 1);
+
+    // Same boost moved to a color slot (last plugin band), panel slot off.
+    eq.bands.pop();
+    eq.color[3] = EqBand { kind: EqBandKind::Peak, freq_hz: 1000.0, gain_db: 12.0, q: 1.0 };
+    let pairs = params::eq_pairs(&eq);
+    let borrowed: Vec<(&str, f32)> = pairs.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+    rig.set_props(&s.control_node(), &params::filter_params(&borrowed));
+    rig.settle(400);
+    let color = rig.measure(&strip_meter, 400)[0];
+    assert!((color - flat - 12.0).abs() < 2.0, "color slot peak: {flat:.1} -> {color:.1} dBFS");
+
+    // A low cut at 8 kHz takes a 1 kHz tone far down.
+    eq.color = EqParams::color_defaults().to_vec();
+    eq.bands = vec![EqBand { kind: EqBandKind::LowCut, freq_hz: 8000.0, gain_db: 0.0, q: 0.7 }];
+    let pairs = params::eq_pairs(&eq);
+    let borrowed: Vec<(&str, f32)> = pairs.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+    rig.set_props(&s.control_node(), &params::filter_params(&borrowed));
+    rig.settle(400);
+    let cut = rig.measure(&strip_meter, 400)[0];
+    assert!(flat - cut > 20.0, "low cut barely changed the level: {flat:.1} -> {cut:.1} dBFS");
+}

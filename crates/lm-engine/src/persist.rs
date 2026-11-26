@@ -98,11 +98,8 @@ fn sanitize(p: &mut Profile) {
         s.solo = false;
         // `online` is recomputed against the live registry at build time.
         s.online = s.kind == StripKind::Virtual;
-        // Migrate pre-color-pad profiles (4 bands) to 8 bands.
-        while s.eq.bands.len() < 8 {
-            let i = s.eq.bands.len() - 4;
-            s.eq.bands.push(lm_protocol::EqParams::color_defaults()[i.min(3)]);
-        }
+        // Older EQ layouts (4 bands, or 4 panel + 4 color in one list).
+        s.eq.migrate();
     }
     for b in &mut p.buses {
         b.online = true;
@@ -187,21 +184,21 @@ mod tests {
     /// EQ-panel bands; bands 4..7 must be filled with the voice-tuned corners
     /// or the pad would drive whatever indices happen to exist.
     #[test]
-    fn sanitize_migrates_pre_color_pad_profiles_to_eight_bands() {
+    fn sanitize_migrates_pre_color_pad_profiles() {
         let mut s = strip(1, StripKind::Virtual);
-        s.eq.bands.truncate(4);
+        s.eq.color.clear();
         let mut p = profile(vec![s]);
         sanitize(&mut p);
 
-        let bands = &p.strips[0].eq.bands;
-        assert_eq!(bands.len(), 8);
-        assert_eq!(&bands[4..], &EqParams::color_defaults()[..], "color bands must be the voice-tuned defaults");
+        let eq = &p.strips[0].eq;
+        assert_eq!(eq.bands.len(), 4);
+        assert_eq!(eq.color, EqParams::color_defaults().to_vec(), "color bands must be the voice-tuned defaults");
     }
 
     #[test]
     fn sanitize_preserves_user_eq_bands_while_migrating() {
         let mut s = strip(1, StripKind::Virtual);
-        s.eq.bands.truncate(4);
+        s.eq.color.clear();
         s.eq.bands[1] = EqBand { kind: EqBandKind::Peak, freq_hz: 900.0, gain_db: -4.5, q: 2.0 };
         let mut p = profile(vec![s]);
         sanitize(&mut p);
@@ -295,7 +292,8 @@ releaseMs = 50.0
         assert_eq!(back.strips[0].label, "System");
         assert_eq!(back.strips[0].gain_db, -6.0);
         sanitize(&mut back);
-        assert_eq!(back.strips[0].eq.bands.len(), 8, "defaults then migration give a full band set");
+        assert_eq!(back.strips[0].eq.bands.len(), 4, "defaults then migration give a full band set");
+        assert_eq!(back.strips[0].eq.color.len(), 4);
     }
 
     #[test]

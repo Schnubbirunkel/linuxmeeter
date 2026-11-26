@@ -81,18 +81,30 @@ pub enum EqBandKind {
     LowShelf,
     Peak,
     HighShelf,
+    /// High-pass: removes everything below the frequency (rumble, plosives).
+    LowCut,
+    /// Low-pass: removes everything above the frequency (hiss).
+    HighCut,
 }
 
 impl EqBandKind {
-    /// LSP para_equalizer `ft_N` filter-type value.
+    /// LSP para_equalizer `ft_N` filter-type value (0 = off).
     pub fn lsp_filter_type(&self) -> f32 {
         match self {
             EqBandKind::Peak => 1.0,      // Bell
+            EqBandKind::LowCut => 2.0,    // Hi-pass
             EqBandKind::HighShelf => 3.0, // Hi-shelf
+            EqBandKind::HighCut => 4.0,   // Lo-pass
             EqBandKind::LowShelf => 5.0,  // Lo-shelf
         }
     }
 }
+
+/// EQ bands the panel can add.
+pub const MAX_EQ_BANDS: usize = 12;
+/// Bands of the LSP para_equalizer_x16 plugin: the panel's bands, then the
+/// four voice-color bands in the last four slots.
+pub const EQ_SLOTS: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -107,12 +119,17 @@ pub struct EqBand {
 #[serde(rename_all = "camelCase")]
 pub struct EqParams {
     pub enabled: bool,
+    /// The EQ panel's bands, 0..=MAX_EQ_BANDS.
     pub bands: Vec<EqBand>,
+    /// The voice-color pad's four bands. Older profiles kept them in
+    /// `bands[4..8]`; `migrate` moves them here.
+    #[serde(default)]
+    pub color: Vec<EqBand>,
 }
 
 impl EqParams {
-    /// Bands 4..8 are reserved for the voice-color pad (voice-tuned corners),
-    /// independent of the four user-facing EQ-panel bands.
+    /// The voice-color pad's bands (voice-tuned corners), independent of
+    /// the EQ panel's bands.
     pub fn color_defaults() -> [EqBand; 4] {
         [
             EqBand { kind: EqBandKind::LowShelf, freq_hz: 300.0, gain_db: 0.0, q: 0.7 },
@@ -123,16 +140,48 @@ impl EqParams {
     }
 }
 
-impl Default for EqParams {
-    fn default() -> Self {
-        let mut bands = vec![
+impl EqParams {
+    pub fn panel_defaults() -> Vec<EqBand> {
+        vec![
             EqBand { kind: EqBandKind::LowShelf, freq_hz: 100.0, gain_db: 0.0, q: 0.7 },
             EqBand { kind: EqBandKind::Peak, freq_hz: 400.0, gain_db: 0.0, q: 1.0 },
             EqBand { kind: EqBandKind::Peak, freq_hz: 2500.0, gain_db: 0.0, q: 1.0 },
             EqBand { kind: EqBandKind::HighShelf, freq_hz: 8000.0, gain_db: 0.0, q: 0.7 },
-        ];
-        bands.extend(Self::color_defaults());
-        Self { enabled: false, bands }
+        ]
+    }
+
+    /// Bring older layouts up to date: 8 bands in one list (4 panel + 4
+    /// color) or 4 bands (no color pad yet) become `bands` + `color`; extra
+    /// bands beyond what the plugin has are dropped.
+    pub fn migrate(&mut self) {
+        if self.color.len() != 4 {
+            if self.color.is_empty() && self.bands.len() >= 8 {
+                self.color = self.bands.drain(4..8).collect();
+                self.bands.truncate(4);
+            } else {
+                self.color = Self::color_defaults().to_vec();
+            }
+        }
+        self.bands.truncate(MAX_EQ_BANDS);
+    }
+
+    /// What each LSP slot carries: panel bands first, color bands in the
+    /// last four slots, None = slot off.
+    pub fn slots(&self) -> [Option<EqBand>; EQ_SLOTS] {
+        let mut out = [None; EQ_SLOTS];
+        for (i, b) in self.bands.iter().take(MAX_EQ_BANDS).enumerate() {
+            out[i] = Some(*b);
+        }
+        for (i, b) in self.color.iter().take(EQ_SLOTS - MAX_EQ_BANDS).enumerate() {
+            out[MAX_EQ_BANDS + i] = Some(*b);
+        }
+        out
+    }
+}
+
+impl Default for EqParams {
+    fn default() -> Self {
+        Self { enabled: false, bands: Self::panel_defaults(), color: Self::color_defaults().to_vec() }
     }
 }
 
@@ -661,14 +710,47 @@ mod tests {
 
     // ---- DSP defaults -----------------------------------------------------
 
-    /// Four user-facing EQ bands plus four reserved for the color pad. The pad
-    /// drives indices 4..7 by number, so the count is load-bearing.
     #[test]
-    fn eq_defaults_to_eight_bands_split_four_and_four() {
+    fn eq_defaults_to_four_panel_bands_and_the_color_corners() {
         let eq = EqParams::default();
-        assert_eq!(eq.bands.len(), 8);
-        assert_eq!(&eq.bands[4..], &EqParams::color_defaults()[..]);
+        assert_eq!(eq.bands.len(), 4);
+        assert_eq!(eq.color, EqParams::color_defaults().to_vec());
         assert!(!eq.enabled);
+    }
+
+    /// Profiles from before this change keep panel and color bands in one
+    /// list of eight; the color pad must keep its settings.
+    #[test]
+    fn eq_migration_splits_the_old_eight_band_layout() {
+        let mut old = EqParams { enabled: true, bands: EqParams::default().bands, color: vec![] };
+        let mut color = EqParams::color_defaults();
+        color[2].gain_db = 7.5;
+        old.bands.extend(color);
+        old.migrate();
+        assert_eq!(old.bands.len(), 4);
+        assert_eq!(old.color[2].gain_db, 7.5);
+
+        let mut pre_pad = EqParams { enabled: false, bands: EqParams::panel_defaults(), color: vec![] };
+        pre_pad.migrate();
+        assert_eq!(pre_pad.color, EqParams::color_defaults().to_vec());
+
+        let mut current = EqParams::default();
+        current.bands.push(current.bands[0]);
+        let before = current.clone();
+        current.migrate();
+        assert_eq!(current, before, "a current profile with five bands is left alone");
+    }
+
+    /// The plugin has 16 slots: panel bands from the start, color bands in
+    /// the last four, everything else switched off.
+    #[test]
+    fn eq_slots_put_color_bands_last_and_switch_the_rest_off() {
+        let mut eq = EqParams::default();
+        eq.bands.push(EqBand { kind: EqBandKind::LowCut, freq_hz: 80.0, gain_db: 0.0, q: 0.7 });
+        let slots = eq.slots();
+        assert_eq!(slots[4].map(|b| b.kind), Some(EqBandKind::LowCut));
+        assert!(slots[5..MAX_EQ_BANDS].iter().all(Option::is_none));
+        assert_eq!(slots[MAX_EQ_BANDS..].iter().flatten().copied().collect::<Vec<_>>(), EqParams::color_defaults().to_vec());
     }
 
     #[test]
@@ -687,6 +769,8 @@ mod tests {
         assert_eq!(EqBandKind::Peak.lsp_filter_type(), 1.0);
         assert_eq!(EqBandKind::HighShelf.lsp_filter_type(), 3.0);
         assert_eq!(EqBandKind::LowShelf.lsp_filter_type(), 5.0);
+        assert_eq!(EqBandKind::LowCut.lsp_filter_type(), 2.0);
+        assert_eq!(EqBandKind::HighCut.lsp_filter_type(), 4.0);
     }
 
     /// The limiter is the last thing before hardware and the virtual mic, so it

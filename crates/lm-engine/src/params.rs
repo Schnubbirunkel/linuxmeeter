@@ -56,6 +56,23 @@ pub fn mute(muted: bool) -> Vec<u8> {
 }
 
 /// dB → linear gain (LSP threshold/makeup ports take linear values).
+/// Control-port values for the strip's `eq` node (LSP para_equalizer_x16):
+/// every slot is written, unused ones switched off (`ft_N` = 0).
+pub fn eq_pairs(eq: &lm_protocol::EqParams) -> Vec<(String, f32)> {
+    let mut pairs: Vec<(String, f32)> = vec![("eq:enabled".into(), eq.enabled as u32 as f32)];
+    for (i, slot) in eq.slots().iter().enumerate() {
+        let Some(band) = slot else {
+            pairs.push((format!("eq:ft_{i}"), 0.0));
+            continue;
+        };
+        pairs.push((format!("eq:ft_{i}"), band.kind.lsp_filter_type()));
+        pairs.push((format!("eq:f_{i}"), band.freq_hz.clamp(10.0, 24000.0)));
+        pairs.push((format!("eq:g_{i}"), db_to_linear(band.gain_db)));
+        pairs.push((format!("eq:q_{i}"), band.q.clamp(0.0, 100.0)));
+    }
+    pairs
+}
+
 pub fn db_to_linear(db: f32) -> f32 {
     10f32.powf(db / 20.0)
 }

@@ -59,7 +59,7 @@ impl Drop for LoadedModule {
 
 const LV2_GATE: &str = "http://lsp-plug.in/plugins/lv2/gate_stereo";
 const LV2_COMP: &str = "http://lsp-plug.in/plugins/lv2/compressor_stereo";
-const LV2_EQ: &str = "http://lsp-plug.in/plugins/lv2/para_equalizer_x8_stereo";
+const LV2_EQ: &str = "http://lsp-plug.in/plugins/lv2/para_equalizer_x16_stereo";
 const LV2_LIMITER: &str = "http://lsp-plug.in/plugins/lv2/limiter_stereo";
 
 /// Module args for a virtual input strip: an `Audio/Sink` other apps play

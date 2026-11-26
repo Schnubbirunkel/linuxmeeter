@@ -767,13 +767,7 @@ impl Engine {
 
     fn apply_eq(&self, strip: &StripState) {
         let e = &strip.eq;
-        let mut pairs: Vec<(String, f32)> = vec![("eq:enabled".into(), e.enabled as u32 as f32)];
-        for (i, band) in e.bands.iter().enumerate().take(8) {
-            pairs.push((format!("eq:ft_{i}"), band.kind.lsp_filter_type()));
-            pairs.push((format!("eq:f_{i}"), band.freq_hz.clamp(10.0, 24000.0)));
-            pairs.push((format!("eq:g_{i}"), params::db_to_linear(band.gain_db)));
-            pairs.push((format!("eq:q_{i}"), band.q.clamp(0.0, 100.0)));
-        }
+        let pairs = params::eq_pairs(e);
         let borrowed: Vec<(&str, f32)> = pairs.iter().map(|(k, v)| (k.as_str(), *v)).collect();
         self.set_props(&strip.control_node(), &params::filter_params(&borrowed));
     }
@@ -879,6 +873,8 @@ impl Engine {
                     params.enabled,
                     params.bands.iter().map(|b| b.gain_db).collect::<Vec<_>>()
                 );
+                let mut params = params;
+                params.migrate();
                 if let Some(s) = self.app.strips.iter_mut().find(|s| s.id == strip) {
                     s.eq = params;
                 }
