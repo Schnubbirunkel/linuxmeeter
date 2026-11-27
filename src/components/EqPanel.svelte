@@ -1,13 +1,22 @@
 <script lang="ts">
-  import { MAX_EQ_BANDS, type EqBand, type EqBandKind, type StripState } from "../lib/types";
+  import { MAX_EQ_BANDS, type BusState, type EqBand, type EqBandKind, type EqParams, type StripState } from "../lib/types";
   import { mixer } from "../lib/state/mixer.svelte";
   import { ui } from "../lib/state/ui.svelte";
   import { EQ_FMAX, EQ_FMIN, freqToX, hasGain, responseCurve, xToFreq } from "../lib/utils/eq";
 
+  /** The EQ of an input strip, or the output EQ of an A bus. */
   interface Props {
-    strip: StripState;
+    strip?: StripState;
+    bus?: BusState;
   }
-  let { strip }: Props = $props();
+  let { strip, bus }: Props = $props();
+
+  let cur = $derived((strip ?? bus)!.eq);
+  let label = $derived(strip ? strip.label : `${bus!.id} ${bus!.label}`);
+  function setEq(eq: EqParams) {
+    if (strip) setEq(eq);
+    else if (bus) mixer.setBusEqParams(bus.id, eq);
+  }
 
   const W = 456;
   const H = 180;
@@ -25,29 +34,29 @@
     high_cut: "HI CUT",
   };
   const KINDS: EqBandKind[] = ["low_cut", "low_shelf", "peak", "high_shelf", "high_cut"];
-  let full = $derived(strip.eq.bands.length >= MAX_EQ_BANDS);
+  let full = $derived(cur.bands.length >= MAX_EQ_BANDS);
 
   function bandY(b: EqBand): number {
     return yForDb(hasGain(b.kind) ? b.gainDb : 0);
   }
 
   function setBands(bands: EqBand[]) {
-    mixer.setEqParams(strip.id, { ...strip.eq, bands, enabled: true });
+    setEq({ ...cur, bands, enabled: true });
   }
 
   function addBand(freqHz = 1000, gainDb = 0) {
     if (full) return;
-    setBands([...strip.eq.bands, { kind: "peak", freqHz: Math.round(freqHz), gainDb: Math.round(gainDb * 10) / 10, q: 1 }]);
-    selected = strip.eq.bands.length - 1;
+    setBands([...cur.bands, { kind: "peak", freqHz: Math.round(freqHz), gainDb: Math.round(gainDb * 10) / 10, q: 1 }]);
+    selected = cur.bands.length - 1;
   }
 
   function removeBand(i: number) {
-    setBands(strip.eq.bands.filter((_, j) => j !== i));
-    selected = Math.max(0, Math.min(selected, strip.eq.bands.length - 1));
+    setBands(cur.bands.filter((_, j) => j !== i));
+    selected = Math.max(0, Math.min(selected, cur.bands.length - 1));
   }
 
   function cycleKind(i: number) {
-    const b = strip.eq.bands[i];
+    const b = cur.bands[i];
     if (!b) return;
     const kind = KINDS[(KINDS.indexOf(b.kind) + 1) % KINDS.length]!;
     setBand(i, { kind, q: kind === "peak" ? 1 : 0.7 });
@@ -62,8 +71,8 @@
   }
 
   function setBand(i: number, patch: Partial<EqBand>) {
-    const bands = strip.eq.bands.map((b, j) => (j === i ? { ...b, ...patch } : b));
-    mixer.setEqParams(strip.id, { ...strip.eq, bands, enabled: true });
+    const bands = cur.bands.map((b, j) => (j === i ? { ...b, ...patch } : b));
+    setEq({ ...cur, bands, enabled: true });
   }
 
   function fmtFreq(f: number): string {
@@ -72,7 +81,7 @@
 
   // ---- canvas drawing (redraws on any eq change via $effect) ----
   $effect(() => {
-    const eq = strip.eq;
+    const eq = cur;
     const sel = selected;
     const ctx = canvas?.getContext("2d");
     if (!ctx) return;
@@ -162,7 +171,7 @@
   function bandAt(mx: number, my: number): number | null {
     let best: number | null = null;
     let bestDist = 14;
-    strip.eq.bands.forEach((b, i) => {
+    cur.bands.forEach((b, i) => {
       const dx = freqToX(b.freqHz, W) - mx;
       const dy = bandY(b) - my;
       const d = Math.hypot(dx, dy);
@@ -191,7 +200,7 @@
   function onpointermove(e: PointerEvent) {
     if (!dragging) return;
     const [mx, my] = canvasPos(e);
-    const b = strip.eq.bands[selected];
+    const b = cur.bands[selected];
     if (!b) return;
     const freqHz = Math.max(EQ_FMIN, Math.min(EQ_FMAX, xToFreq(mx, W)));
     const gainDb = Math.max(-DB_RANGE, Math.min(DB_RANGE, dbForY(my)));
@@ -210,7 +219,7 @@
     e.preventDefault();
     const [mx, my] = canvasPos(e);
     const hit = bandAt(mx, my) ?? selected;
-    const b = strip.eq.bands[hit];
+    const b = cur.bands[hit];
     if (!b) return;
     const dir = e.deltaY < 0 ? 1 : -1;
     const q = Math.max(0.1, Math.min(10, b.q * (dir > 0 ? 1.15 : 1 / 1.15)));
@@ -218,15 +227,30 @@
     setBand(hit, { q: Math.round(q * 100) / 100 });
   }
 
-  let others = $derived(mixer.strips.filter((s) => s.id !== strip.id));
+  /** Where this EQ can be copied: other strips, or the other A buses. */
+  interface CopyTarget {
+    key: string;
+    label: string;
+    apply: (eq: EqParams) => void;
+  }
+  let others = $derived<CopyTarget[]>(
+    strip
+      ? mixer.strips
+          .filter((s) => s.id !== strip.id)
+          .map((s) => ({ key: `s${s.id}`, label: s.label, apply: (eq: EqParams) => mixer.setEqParams(s.id, eq) }))
+      : mixer.buses
+          .filter((b) => b.id !== bus?.id && b.targetHwKey !== null)
+          .map((b) => ({ key: b.id, label: `${b.id} ${b.label}`, apply: (eq: EqParams) => mixer.setBusEqParams(b.id, eq) })),
+  );
   let copied = $state<string | null>(null);
 
-  /** Give other strips this strip's complete EQ (points, voice color, on/off). */
+  /** Give the other targets this complete EQ (points, voice color, on/off). */
   function copyTo(value: string) {
-    const targets = value === "all" ? others : others.filter((s) => String(s.id) === value);
-    for (const t of targets) mixer.setEqParams(t.id, $state.snapshot(strip.eq));
+    const targets = value === "all" ? others : others.filter((t) => t.key === value);
+    for (const t of targets) t.apply($state.snapshot(cur));
     if (!targets.length) return;
-    const text = targets.length === 1 ? `copied to ${targets[0]!.label}` : `copied to ${targets.length} strips`;
+    const kind = strip ? "strips" : "outputs";
+    const text = targets.length === 1 ? `copied to ${targets[0]!.label}` : `copied to ${targets.length} ${kind}`;
     copied = text;
     setTimeout(() => {
       if (copied === text) copied = null;
@@ -234,10 +258,11 @@
   }
 
   function toggleEnabled() {
-    mixer.setEqParams(strip.id, { ...strip.eq, enabled: !strip.eq.enabled });
+    setEq({ ...cur, enabled: !cur.enabled });
   }
   function close() {
     ui.eqStrip = null;
+    ui.eqBus = null;
   }
   function onkeydown(e: KeyboardEvent) {
     if (e.key === "Escape") close();
@@ -251,11 +276,11 @@
 <div class="scrim" onclick={(e) => e.target === e.currentTarget && close()}>
   <div class="panel" role="dialog" aria-label="Equalizer">
     <header>
-      <div class="title">EQ <span class="sub">{copied ?? strip.label}</span></div>
+      <div class="title">{bus ? "OUTPUT EQ" : "EQ"} <span class="sub">{copied ?? label}</span></div>
       {#if others.length}
         <select
           class="enbtn copy"
-          title="Copy this EQ (points, voice color, on/off) to another strip"
+          title={strip ? "Copy this EQ (points, voice color, on/off) to another strip" : "Copy this output EQ to another output bus"}
           value=""
           onchange={(e) => {
             const el = e.currentTarget as HTMLSelectElement;
@@ -264,11 +289,11 @@
           }}
         >
           <option value="" disabled>COPY TO…</option>
-          {#each others as o (o.id)}
-            <option value={String(o.id)}>{o.label}</option>
+          {#each others as o (o.key)}
+            <option value={o.key}>{o.label}</option>
           {/each}
           {#if others.length > 1}
-            <option value="all">All strips</option>
+            <option value="all">{strip ? "All strips" : "All outputs"}</option>
           {/if}
         </select>
       {/if}
@@ -276,8 +301,8 @@
         class="enbtn"
         title="Reset all bands to defaults"
         onclick={() =>
-          mixer.setEqParams(strip.id, {
-            ...strip.eq,
+          setEq({
+            ...cur,
             bands: [
               { kind: "low_shelf", freqHz: 100, gainDb: 0, q: 0.7 },
               { kind: "peak", freqHz: 400, gainDb: 0, q: 1 },
@@ -288,8 +313,8 @@
       >
         RESET
       </button>
-      <button class="enbtn" class:active={strip.eq.enabled} aria-pressed={strip.eq.enabled} onclick={toggleEnabled}>
-        {strip.eq.enabled ? "ON" : "OFF"}
+      <button class="enbtn" class:active={cur.enabled} aria-pressed={cur.enabled} onclick={toggleEnabled}>
+        {cur.enabled ? "ON" : "OFF"}
       </button>
       <button class="closebtn" title="Close" onclick={close}>
         <svg width="11" height="11" viewBox="0 0 12 12"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" stroke-width="1.25" /></svg>
@@ -309,7 +334,7 @@
     ></canvas>
 
     <div class="bands">
-      {#each strip.eq.bands as b, i}
+      {#each cur.bands as b, i}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div class="band" class:sel={i === selected} onclick={() => (selected = i)}>
           <div class="bhead">
@@ -327,7 +352,7 @@
       {#if !full}
         <button class="band add" title="Add a point (or double-click the curve)" onclick={() => addBand()}>
           <span class="kind">+ ADD</span>
-          <span class="vals">{strip.eq.bands.length}/{MAX_EQ_BANDS}</span>
+          <span class="vals">{cur.bands.length}/{MAX_EQ_BANDS}</span>
         </button>
       {/if}
     </div>

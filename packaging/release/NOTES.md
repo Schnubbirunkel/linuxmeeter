@@ -1,5 +1,9 @@
 Fork of [dslapelis/linuxmeeter](https://github.com/dslapelis/linuxmeeter).
 
+## New in 0.6.0
+
+- **Output EQ on the speaker / headphone buses (A1–A4)**: the new *EQ* button under a hardware bus's limiter opens the familiar EQ window for that output. Use it when your speakers or headset don't sound right: it changes only what you hear on that device. The virtual microphones (B buses) — what OBS, Discord and recordings get — stay untouched, and so do the input strips. Every output has its own correction, saved per profile; *COPY TO…* copies it to the other outputs. The bus limiter comes after the EQ, so a boost cannot clip.
+
 ## New in 0.5.3
 
 - **Copy an EQ to other strips**: in the EQ panel, *COPY TO…* gives another strip — or all strips — this strip's complete EQ: every point, the voice color and on/off. Set it up once, use it everywhere.

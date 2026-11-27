@@ -75,10 +75,10 @@ const state: AppState = {
     { id: 5, kind: "virtual", label: "Chat", hwKey: null, online: true, gainDb: -6, mute: false, solo: false, routes: routes(["A2", "B1"]), gate: defaultGate(), comp: defaultComp(), eq: defaultEq() },
   ],
   buses: [
-    { id: "A1", label: "Speakers", targetHwKey: "alsa_output.pci-0000_2f_00.1.hdmi-stereo", online: true, gainDb: 0, mute: false, limiter: defaultLimiter() },
-    { id: "A2", label: "Headphones", targetHwKey: "alsa_output.usb-ZOOM_Corporation_UAC-2", online: true, gainDb: -2.5, mute: false, limiter: defaultLimiter() },
-    { id: "B1", label: "Stream Mic", targetHwKey: null, online: true, gainDb: 0, mute: false, limiter: defaultLimiter() },
-    { id: "B2", label: "Aux", targetHwKey: null, online: true, gainDb: -6, mute: false, limiter: defaultLimiter() },
+    { id: "A1", label: "Speakers", targetHwKey: "alsa_output.pci-0000_2f_00.1.hdmi-stereo", online: true, gainDb: 0, mute: false, limiter: defaultLimiter(), eq: defaultEq() },
+    { id: "A2", label: "Headphones", targetHwKey: "alsa_output.usb-ZOOM_Corporation_UAC-2", online: true, gainDb: -2.5, mute: false, limiter: defaultLimiter(), eq: defaultEq() },
+    { id: "B1", label: "Stream Mic", targetHwKey: null, online: true, gainDb: 0, mute: false, limiter: defaultLimiter(), eq: defaultEq() },
+    { id: "B2", label: "Aux", targetHwKey: null, online: true, gainDb: -6, mute: false, limiter: defaultLimiter(), eq: defaultEq() },
   ],
   devices: [
     { nodeName: "alsa_input.usb-ZOOM_Corporation_UAC-2", description: "ZOOM UAC-2", mediaClass: "Audio/Source", serial: 67, channels: 2 },
@@ -210,6 +210,11 @@ export const mockIpc: Ipc = {
     if (s) s.eq = JSON.parse(JSON.stringify(params));
     return Promise.resolve();
   },
+  setBusEqParams: (bus, params) => {
+    const b = state.buses.find((x) => x.id === bus);
+    if (b) b.eq = JSON.parse(JSON.stringify(params));
+    return Promise.resolve();
+  },
   setLimiterParams: (bus, params) => {
     const b = state.buses.find((x) => x.id === bus);
     if (b) b.limiter = { ...params };
@@ -311,6 +316,7 @@ export const mockIpc: Ipc = {
       gainDb: 0,
       mute: false,
       limiter: defaultLimiter(),
+      eq: defaultEq(),
     };
     state.buses.push(bus);
     state.buses.sort((a, b) => BUS_IDS.indexOf(a.id) - BUS_IDS.indexOf(b.id));

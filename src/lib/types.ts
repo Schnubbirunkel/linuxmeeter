@@ -73,6 +73,8 @@ export interface BusState {
   gainDb: number;
   mute: boolean;
   limiter: LimiterParams;
+  /** Output EQ — A buses only (speaker / headphone correction). */
+  eq: EqParams;
 }
 
 export interface DeviceInfo {

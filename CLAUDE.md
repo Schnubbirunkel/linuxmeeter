@@ -220,6 +220,12 @@ B1–B3 virtual mics); `strip_taps`/`bus_taps` stay index-aligned with `app.stri
 strip's sink, a B bus's source) set `node.virtual = false` explicitly — filter-chain
 defaults to true, and then pipewire-pulse drops the HARDWARE flag and KDE hides them.
 
+A buses also carry an output EQ (`BusState.eq`, `SetBusEqParams`, `apply_bus_eq`): their
+filter graph is `eq` → `lim` (B buses stay limiter-only, so the virtual mics never get
+the listener's speaker correction). Same `para_equalizer_x16_stereo` and `eq_pairs` as
+the strips; the EQ panel takes `strip` or `bus`. The bus GR display is computed from the
+pre-EQ tap, so with a strong EQ boost it under-reports the limiter.
+
 ### Pre-DSP meters (gain reduction display)
 
 filter-chain does not expose LV2 output (meter) ports, so gain reduction is derived:

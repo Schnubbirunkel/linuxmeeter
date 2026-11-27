@@ -439,7 +439,7 @@ pub fn serve(listener: UnixListener, handle: impl Fn(Vec<String>) -> String + Se
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lm_protocol::{BusId, BusState, LimiterParams, StripKind, StripState};
+    use lm_protocol::{BusId, BusState, EqParams, LimiterParams, StripKind, StripState};
 
     fn state() -> AppState {
         let strip = |id, label: &str| StripState {
@@ -464,6 +464,7 @@ mod tests {
             gain_db: 0.0,
             mute: false,
             limiter: LimiterParams::default(),
+            eq: EqParams::default(),
         };
         AppState {
             strips: vec![strip(1, "Mic"), strip(3, "Game Audio")],

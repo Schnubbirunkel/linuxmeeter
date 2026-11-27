@@ -319,6 +319,10 @@ pub struct BusState {
     pub gain_db: f32,
     pub mute: bool,
     pub limiter: LimiterParams,
+    /// Output EQ (A buses only: corrects the speakers / headset without
+    /// touching what the virtual microphones carry). Off by default.
+    #[serde(default)]
+    pub eq: EqParams,
 }
 
 impl BusState {
@@ -431,6 +435,11 @@ pub enum EngineCommand {
     SetLimiterParams {
         bus: BusId,
         params: LimiterParams,
+    },
+    /// Output EQ of an A bus (ignored for B buses).
+    SetBusEqParams {
+        bus: BusId,
+        params: EqParams,
     },
     /// Point a hardware strip at a different capture device (module reload).
     SetStripDevice {
@@ -649,6 +658,7 @@ mod tests {
             gain_db: 0.0,
             mute: false,
             limiter: LimiterParams::default(),
+            eq: EqParams::default(),
         }
     }
 

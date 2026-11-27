@@ -941,6 +941,15 @@ impl Engine {
         self.set_props(&bus.in_node(), &params::filter_params(&pairs));
     }
 
+    fn apply_bus_eq(&self, bus: &BusState) {
+        if !bus.id.is_hardware() {
+            return;
+        }
+        let pairs = params::eq_pairs(&bus.eq);
+        let borrowed: Vec<(&str, f32)> = pairs.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        self.set_props(&bus.in_node(), &params::filter_params(&borrowed));
+    }
+
     fn apply_eq(&self, strip: &StripState) {
         let e = &strip.eq;
         let pairs = params::eq_pairs(e);
@@ -965,6 +974,7 @@ impl Engine {
         if let Some(b) = self.app.buses.iter().find(|b| b.in_node() == node_name) {
             self.apply_gain(Target::Bus { bus: b.id });
             self.apply_limiter(b);
+            self.apply_bus_eq(b);
             self.apply_bus_mute(b.id);
         }
     }
@@ -1077,6 +1087,17 @@ impl Engine {
                 if let Some(b) = self.app.buses.iter().find(|b| b.id == bus) {
                     self.apply_limiter(b);
                 }
+            }
+            EngineCommand::SetBusEqParams { bus, params } => {
+                let mut params = params;
+                params.migrate();
+                if let Some(b) = self.app.buses.iter_mut().find(|b| b.id == bus) {
+                    b.eq = params;
+                }
+                if let Some(b) = self.app.buses.iter().find(|b| b.id == bus) {
+                    self.apply_bus_eq(b);
+                }
+                self.dirty = true;
             }
             EngineCommand::SetStripDevice { strip, hw_key } => {
                 let known = self.model.node_by_name(&hw_key).is_some();
@@ -1362,6 +1383,7 @@ fn bus(id: BusId, label: &str, target: Option<String>) -> BusState {
         gain_db: 0.0,
         mute: false,
         limiter: LimiterParams::default(),
+        eq: EqParams::default(),
     }
 }
 

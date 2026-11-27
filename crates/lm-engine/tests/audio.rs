@@ -21,7 +21,7 @@ use lm_engine::links::LinkManager;
 use lm_engine::meter::{MeterAccum, MeterTap};
 use lm_engine::params;
 use lm_engine::registry::{parse, GraphModel, PortDirection};
-use lm_protocol::{BusState, LimiterParams, StripKind, StripState};
+use lm_protocol::{BusState, EqParams, LimiterParams, StripKind, StripState};
 
 use pipewire::context::ContextRc;
 use pipewire::core::CoreRc;
@@ -364,6 +364,7 @@ fn bus_a1() -> BusState {
         gain_db: 0.0,
         mute: false,
         limiter: LimiterParams::default(),
+        eq: EqParams::default(),
     }
 }
 
@@ -400,7 +401,7 @@ fn full_chain(amplitude: f32) -> (Rig, Arc<MeterAccum>, Arc<MeterAccum>, StripSt
     rig.settle(500);
 
     make_transparent(&rig, &s.control_node());
-    rig.set_props(&b.in_node(), &params::filter_params(&[("lim:enabled", 0.0)]));
+    rig.set_props(&b.in_node(), &params::filter_params(&[("lim:enabled", 0.0), ("eq:enabled", 0.0)]));
     rig.set_props(&b.in_node(), &params::channel_volumes(1.0));
     rig.settle(300);
 
@@ -453,6 +454,7 @@ fn b_bus_appears_as_a_microphone() {
         gain_db: 0.0,
         mute: false,
         limiter: LimiterParams::default(),
+        eq: EqParams::default(),
     };
 
     rig.load(&bus_args(&b.node_base(), &b.label, None));
@@ -601,7 +603,7 @@ fn gate_threshold_opens_and_closes_the_signal() {
 #[test]
 #[ignore = "requires a PipeWire daemon; run with `make test-audio`"]
 fn eq_bands_in_every_slot_range_shape_the_signal() {
-    use lm_protocol::{EqBand, EqBandKind, EqParams, MAX_EQ_BANDS};
+    use lm_protocol::{EqBand, EqBandKind, MAX_EQ_BANDS};
     let (rig, strip_meter, _bus_meter, s, _b) = full_chain(0.125); // -18 dBFS, 1 kHz
     let flat = rig.measure(&strip_meter, 400)[0];
 
@@ -634,6 +636,34 @@ fn eq_bands_in_every_slot_range_shape_the_signal() {
     rig.settle(400);
     let cut = rig.measure(&strip_meter, 400)[0];
     assert!(flat - cut > 20.0, "low cut barely changed the level: {flat:.1} -> {cut:.1} dBFS");
+}
+
+/// An A bus's output EQ shapes what reaches the speakers — and only there:
+/// the strip feeding it (and so every other bus, the virtual mics included)
+/// is unchanged.
+#[test]
+#[ignore = "requires a PipeWire daemon; run with `make test-audio`"]
+fn a_bus_eq_changes_the_bus_but_not_the_strip() {
+    use lm_protocol::{EqBand, EqBandKind};
+    let (rig, strip_meter, bus_meter, _s, b) = full_chain(0.125); // -18 dBFS, 1 kHz
+    let strip_flat = rig.measure(&strip_meter, 400)[0];
+    let bus_flat = rig.measure(&bus_meter, 400)[0];
+
+    let mut bus = b.clone();
+    bus.eq = EqParams {
+        enabled: true,
+        bands: vec![EqBand { kind: EqBandKind::Peak, freq_hz: 1000.0, gain_db: 6.0, q: 1.0 }],
+        color: EqParams::color_defaults().to_vec(),
+    };
+    let pairs = params::eq_pairs(&bus.eq);
+    let borrowed: Vec<(&str, f32)> = pairs.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+    rig.set_props(&bus.in_node(), &params::filter_params(&borrowed));
+    rig.settle(400);
+
+    let bus_eq = rig.measure(&bus_meter, 400)[0];
+    let strip_after = rig.measure(&strip_meter, 400)[0];
+    assert!((bus_eq - bus_flat - 6.0).abs() < 1.5, "bus EQ +6 dB: {bus_flat:.1} -> {bus_eq:.1} dBFS");
+    assert!((strip_after - strip_flat).abs() < 0.3, "bus EQ leaked into the strip: {strip_flat:.1} -> {strip_after:.1} dBFS");
 }
 
 /// The bus limiter: below its threshold it must not change the level (LSP's

@@ -132,6 +132,7 @@ fn sanitize(p: &mut Profile) {
     }
     for b in &mut p.buses {
         b.online = true;
+        b.eq.migrate();
     }
 }
 
@@ -186,6 +187,7 @@ mod tests {
                 gain_db: 0.0,
                 mute: false,
                 limiter: LimiterParams::default(),
+                eq: EqParams::default(),
             }],
         }
     }

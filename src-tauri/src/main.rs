@@ -383,6 +383,11 @@ fn set_limiter_params(
 }
 
 #[tauri::command]
+fn set_bus_eq_params(data: tauri::State<AppData>, bus: BusId, params: EqParams) -> Result<(), String> {
+    send(&data, EngineCommand::SetBusEqParams { bus, params })
+}
+
+#[tauri::command]
 fn set_strip_device(
     data: tauri::State<AppData>,
     strip_id: StripId,
@@ -976,6 +981,7 @@ fn main() {
             set_comp_params,
             set_eq_params,
             set_limiter_params,
+            set_bus_eq_params,
             set_strip_device,
             set_bus_target,
             set_default_output,

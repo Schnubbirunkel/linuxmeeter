@@ -154,6 +154,12 @@ class MixerStore {
     void ipc.setEqParams(stripId, params);
   }
 
+  setBusEqParams(bus: BusId, params: EqParams): void {
+    const b = this.bus(bus);
+    if (b) b.eq = params;
+    void ipc.setBusEqParams(bus, params);
+  }
+
   setLimiterParams(bus: BusId, params: LimiterParams): void {
     const b = this.bus(bus);
     if (b) b.limiter = params;

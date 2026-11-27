@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { BusState } from "../lib/types";
   import { mixer } from "../lib/state/mixer.svelte";
+  import { ui } from "../lib/state/ui.svelte";
   import StripHeader from "./StripHeader.svelte";
   import Meter from "./Meter.svelte";
   import Scale from "./Scale.svelte";
@@ -68,15 +69,28 @@
       onchange={(v) => mixer.setLimiterParams(bus.id, { ...bus.limiter, thresholdDb: v })}
       onenabledchange={(on) => mixer.setLimiterParams(bus.id, { ...bus.limiter, enabled: on })}
     />
-    <button
-      class="limbtn"
-      class:active={bus.limiter.enabled}
-      aria-pressed={bus.limiter.enabled}
-      title={bus.limiter.enabled ? "Limiter on — click to switch it off completely" : "Limiter off — click to switch it on"}
-      onclick={() => mixer.setLimiterParams(bus.id, { ...bus.limiter, enabled: !bus.limiter.enabled })}
-    >
-      {bus.limiter.enabled ? "ON" : "OFF"}
-    </button>
+    <div class="btncol">
+      <button
+        class="limbtn"
+        class:active={bus.limiter.enabled}
+        aria-pressed={bus.limiter.enabled}
+        title={bus.limiter.enabled ? "Limiter on — click to switch it off completely" : "Limiter off — click to switch it on"}
+        onclick={() => mixer.setLimiterParams(bus.id, { ...bus.limiter, enabled: !bus.limiter.enabled })}
+      >
+        {bus.limiter.enabled ? "ON" : "OFF"}
+      </button>
+      {#if !isVirtual}
+        <button
+          class="limbtn"
+          class:active={bus.eq.enabled}
+          aria-pressed={bus.eq.enabled}
+          title="Output EQ: corrects how these speakers / headphones sound to you. Not heard on the virtual microphones (B buses)."
+          onclick={() => (ui.eqBus = bus.id)}
+        >
+          EQ
+        </button>
+      {/if}
+    </div>
   </div>
   <GrMeter
     key={`bp:${bus.id}`}
@@ -125,6 +139,11 @@
   }
   .knobs {
     align-items: center;
+  }
+  .btncol {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
   }
   .limbtn {
     width: 30px;

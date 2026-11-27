@@ -190,16 +190,35 @@ pub fn bus_args(bus_name: &str, label: &str, hw_target: Option<&str>) -> String 
             "state.restore-props": false,
         }),
     };
-    json!({
-        "node.description": label,
-        "media.name": label,
-        "filter.graph": {
+    // A buses get an output EQ ahead of the limiter (room / headphone
+    // correction, so the limiter still catches what a boost adds). B buses —
+    // the virtual microphones — stay limiter-only.
+    let graph = if hw_target.is_some() {
+        json!({
+            "nodes": [
+                { "type": "lv2", "name": "eq",  "plugin": LV2_EQ },
+                { "type": "lv2", "name": "lim", "plugin": LV2_LIMITER },
+            ],
+            "links": [
+                { "output": "eq:out_l", "input": "lim:in_l" },
+                { "output": "eq:out_r", "input": "lim:in_r" },
+            ],
+            "inputs":  [ "eq:in_l", "eq:in_r" ],
+            "outputs": [ "lim:out_l", "lim:out_r" ],
+        })
+    } else {
+        json!({
             "nodes": [
                 { "type": "lv2", "name": "lim", "plugin": LV2_LIMITER },
             ],
             "inputs":  [ "lim:in_l", "lim:in_r" ],
             "outputs": [ "lim:out_l", "lim:out_r" ],
-        },
+        })
+    };
+    json!({
+        "node.description": label,
+        "media.name": label,
+        "filter.graph": graph,
         "capture.props": {
             "node.name": format!("{bus_name}.in"),
             "node.description": format!("{label} (in)"),
@@ -357,10 +376,24 @@ mod tests {
     }
 
     #[test]
-    fn bus_dsp_is_a_limiter() {
-        let v = parse(&bus_args("lm.bus.a1", "Speakers", None));
+    fn b_bus_dsp_is_a_limiter() {
+        let v = parse(&bus_args("lm.bus.b1", "Stream Mic", None));
+        assert_eq!(v["filter.graph"]["nodes"].as_array().unwrap().len(), 1);
         assert_eq!(v["filter.graph"]["nodes"][0]["name"], "lim");
         assert_eq!(v["filter.graph"]["inputs"][0], "lim:in_l");
+    }
+
+    /// A buses: EQ, then the limiter — the "eq:" / "lim:" Props prefixes are
+    /// the contract with engine.rs.
+    #[test]
+    fn a_bus_dsp_is_eq_then_limiter() {
+        let v = parse(&bus_args("lm.bus.a1", "Speakers", Some("alsa_output.hdmi")));
+        let g = &v["filter.graph"];
+        assert_eq!(g["nodes"][0]["name"], "eq");
+        assert_eq!(g["nodes"][1]["name"], "lim");
+        assert_eq!(g["inputs"][0], "eq:in_l");
+        assert_eq!(g["links"][1]["input"], "lim:in_r");
+        assert_eq!(g["outputs"][1], "lim:out_r");
     }
 
     #[test]

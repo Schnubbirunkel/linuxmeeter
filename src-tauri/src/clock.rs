@@ -334,7 +334,7 @@ pub fn restart_audio_and_app(pid: u32) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lm_protocol::{BusId, BusState, DeviceInfo, LimiterParams, StripKind, StripState};
+    use lm_protocol::{BusId, BusState, DeviceInfo, EqParams, LimiterParams, StripKind, StripState};
 
     /// The user's own pw-top output (trimmed): the headset follows nothing,
     /// the onboard card follows it.
@@ -416,6 +416,7 @@ S   53      0      0    ---     ---   ---   ---     0                  bluez_mid
             gain_db: 0.0,
             mute: false,
             limiter: LimiterParams::default(),
+            eq: EqParams::default(),
         };
         let dev = |n: &str, d: &str| DeviceInfo {
             node_name: n.into(),

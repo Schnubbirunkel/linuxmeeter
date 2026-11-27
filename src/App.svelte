@@ -14,6 +14,7 @@
   });
 
   let eqStrip = $derived(ui.eqStrip !== null ? mixer.strip(ui.eqStrip) : undefined);
+  let eqBus = $derived(ui.eqBus !== null ? mixer.bus(ui.eqBus) : undefined);
   let dynStrip = $derived(ui.dynStrip !== null ? mixer.strip(ui.dynStrip) : undefined);
 </script>
 
@@ -28,6 +29,8 @@
 </div>
 {#if eqStrip}
   <EqPanel strip={eqStrip} />
+{:else if eqBus}
+  <EqPanel bus={eqBus} />
 {/if}
 {#if dynStrip}
   <DynPanel strip={dynStrip} />

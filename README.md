@@ -7,7 +7,7 @@ OBS, or any recorder can use.
 
 This is a fork of [dslapelis/linuxmeeter](https://github.com/dslapelis/linuxmeeter)
 with as many strips and buses as you need, renaming, profile switching, a
-12-point EQ, gain-reduction displays, global shortcuts, a phone remote, desktop
+12-point EQ (also on the speaker and headphone outputs), gain-reduction displays, global shortcuts, a phone remote, desktop
 notifications, a microphone warning tone, volume keys that follow the profile's
 hardware output, a helper for crackling wireless headsets, backups, in-app updates, and packages for Arch and Debian.
 
@@ -64,6 +64,9 @@ from source (below).
   a point (or ×) to remove it, click its name to switch between peak, low/high
   shelf, low cut and high cut; drag for frequency and gain, mouse wheel for Q.
   *COPY TO…* gives another strip (or all of them) the same EQ
+- **Output EQ for your speakers and headphones** — every hardware bus (A1–A4)
+  has its own EQ to correct how that device sounds to you; the virtual
+  microphones (what OBS or Discord get) are not affected
 
   ![EQ panel](docs/screenshot-eq.png)
 
