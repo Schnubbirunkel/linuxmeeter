@@ -18,7 +18,7 @@ use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
-use lm_protocol::{AppState, BusId, EngineCommand, MeterFrame, Target};
+use lm_protocol::{AppState, EngineCommand, MeterFrame, Target};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, watch};
 
@@ -171,7 +171,7 @@ impl Remote {
 
     /// Every third engine frame (~10/s) goes to the phones.
     pub fn publish_meters(&self, frame: &MeterFrame) {
-        if self.clients() == 0 || self.meter_tick.fetch_add(1, Ordering::Relaxed) % 3 != 0 {
+        if self.clients() == 0 || !self.meter_tick.fetch_add(1, Ordering::Relaxed).is_multiple_of(3) {
             return;
         }
         let peak = |v: &[f32; 4]| v[0].max(v[1]);
@@ -337,6 +337,7 @@ fn handle(inner: &Inner, cmd: ClientCmd, last_refresh: &mut Instant) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lm_protocol::BusId;
 
     #[test]
     fn only_local_addresses_are_served() {
