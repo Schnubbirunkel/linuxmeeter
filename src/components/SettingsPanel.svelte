@@ -4,6 +4,7 @@
   import { mixer } from "../lib/state/mixer.svelte";
   import { ui } from "../lib/state/ui.svelte";
   import KeyCapture from "./KeyCapture.svelte";
+  import UpdateSection from "./UpdateSection.svelte";
 
   let notifications = $state(true);
   let micTone = $state(true);
@@ -161,6 +162,10 @@
     {#if backupMsg}
       <div class="hint" class:warn={backupMsg.error}>{backupMsg.text}</div>
     {/if}
+
+    <div class="sep"></div>
+
+    <UpdateSection />
 
     <div class="sep"></div>
 

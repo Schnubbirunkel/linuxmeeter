@@ -5,6 +5,7 @@ mod control;
 mod notify;
 mod settings;
 mod shortcuts;
+mod updater;
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
@@ -201,6 +202,59 @@ fn save_profile_as(data: tauri::State<AppData>, name: String) -> Result<(), Stri
 #[tauri::command]
 fn delete_profile(data: tauri::State<AppData>, name: String) -> Result<(), String> {
     send(&data, EngineCommand::DeleteProfile { name })
+}
+
+/// Check for an update on `channel` (saved as the chosen channel).
+#[tauri::command]
+async fn check_update(channel: updater::Channel) -> Result<updater::UpdateInfo, String> {
+    settings::update(|s| s.update_channel = channel)?;
+    updater::check(channel).await
+}
+
+/// Version and commit of this build, e.g. ("0.4.1.r312", "4cc88db…").
+#[tauri::command]
+fn get_build_info() -> (String, String) {
+    (updater::BUILD_VERSION.to_string(), updater::BUILD_SHA.to_string())
+}
+
+/// Open a page of this project on GitHub in the desktop's browser.
+#[tauri::command]
+fn open_release_page(url: String) -> Result<(), String> {
+    if !url.starts_with(&format!("https://github.com/{}/", updater::REPO)) {
+        return Err("not a page of this project".into());
+    }
+    std::process::Command::new("xdg-open").arg(url).spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_update_channel() -> updater::Channel {
+    settings::get().update_channel
+}
+
+/// Download + install `asset`, then restart into the new version. Progress
+/// goes out as `update_progress` events.
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle, platform: updater::Platform, asset: updater::Asset) -> Result<(), String> {
+    let progress_app = app.clone();
+    updater::install(platform, &asset, move |text| {
+        let _ = progress_app.emit("update_progress", text);
+    })
+    .await?;
+    let _ = app.emit("update_progress", "Restarting…");
+    restart_into(&app);
+    Ok(())
+}
+
+/// Start the (new) binary, which waits for this process to finish shutting
+/// down — its virtual devices must be gone before the new ones appear — and
+/// exit.
+fn restart_into(app: &tauri::AppHandle) {
+    let exe = updater::exe_after_update();
+    let pid = std::process::id().to_string();
+    match std::process::Command::new(&exe).args(["--replace", &pid]).spawn() {
+        Ok(_) => app.exit(0),
+        Err(e) => tracing::error!("could not restart {}: {e}", exe.display()),
+    }
 }
 
 #[tauri::command]
@@ -502,7 +556,32 @@ fn main() {
     }
 
     // One mixer per session: a second launch just brings the window up.
-    let listener = match control::listen() {
+    // After an update: wait for the old process (still removing its devices)
+    // to be gone before taking over — and never give up into "nothing runs".
+    let replacing = args.iter().position(|a| a == "--replace");
+    if let Some(pid) = replacing.and_then(|i| args.get(i + 1)) {
+        let proc_dir = std::path::PathBuf::from(format!("/proc/{pid}"));
+        for _ in 0..200 {
+            if !proc_dir.exists() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
+    let mut listened = control::listen();
+    if replacing.is_some() {
+        for _ in 0..100 {
+            match &listened {
+                Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                    std::thread::sleep(Duration::from_millis(200));
+                    listened = control::listen();
+                }
+                _ => break,
+            }
+        }
+    }
+
+    let listener = match listened {
         Ok(l) => Some(l),
         Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
             let _ = control::send(&["show".to_string()]);
@@ -567,6 +646,11 @@ fn main() {
             set_shortcut,
             get_mic_tone,
             set_mic_tone,
+            check_update,
+            get_update_channel,
+            get_build_info,
+            open_release_page,
+            install_update,
             export_settings,
             import_settings,
         ])

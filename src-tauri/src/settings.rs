@@ -14,6 +14,9 @@ pub struct Settings {
     /// Warning tone when the microphones are muted or go live.
     #[serde(default = "yes")]
     pub mic_tone: bool,
+    /// Update channel: "stable" (releases) or "edge" (every push to main).
+    #[serde(default = "stable")]
+    pub update_channel: crate::updater::Channel,
     /// Global shortcuts: ctl action ("toggle-mute strip:3") -> keys ("Ctrl+Alt+M").
     #[serde(default)]
     pub shortcuts: BTreeMap<String, String>,
@@ -23,9 +26,18 @@ fn yes() -> bool {
     true
 }
 
+fn stable() -> crate::updater::Channel {
+    crate::updater::Channel::Stable
+}
+
 impl Default for Settings {
     fn default() -> Self {
-        Self { notifications: true, mic_tone: true, shortcuts: BTreeMap::new() }
+        Self {
+            notifications: true,
+            mic_tone: true,
+            update_channel: crate::updater::Channel::Stable,
+            shortcuts: BTreeMap::new(),
+        }
     }
 }
 

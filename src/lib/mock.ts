@@ -103,6 +103,8 @@ function findStrip(id: number): StripState | undefined {
 let mockAutostart = false;
 let mockNotifications = true;
 let mockMicTone = true;
+let mockChannel: "stable" | "edge" = "stable";
+const updateSubs = new Set<(text: string) => void>();
 const mockShortcuts: Record<string, string> = { "toggle-mute-mics": "Meta+M" };
 
 function emitState(): void {
@@ -311,6 +313,40 @@ export const mockIpc: Ipc = {
     return Promise.resolve(keys);
   },
   onShortcutsChanged: () => () => {},
+  getBuildInfo: () => Promise.resolve(["0.4.1.r60", "4cc88db95a37bcc53fb88e3edf709bb539fa5e9f"] as [string, string]),
+  getUpdateChannel: () => Promise.resolve(mockChannel),
+  checkUpdate: (channel) => {
+    mockChannel = channel;
+    return new Promise((r) =>
+      setTimeout(
+        () =>
+          r({
+            channel,
+            platform: "arch",
+            currentVersion: "0.4.1.r60",
+            currentSha: "4cc88db95a37bcc53fb88e3edf709bb539fa5e9f",
+            available: true,
+            latest: channel === "edge" ? "0.4.1.r63 (9f3c2aa)" : "0.5.0",
+            releaseUrl: "https://github.com/Schnubbirunkel/linuxmeeter/releases",
+            asset: { name: "linuxmeeter.pkg.tar.zst", url: "", digest: null },
+          }),
+        400,
+      ),
+    );
+  },
+  installUpdate: () => {
+    for (const [ms, text] of [[0, "Downloading…"], [800, "Installing… (enter your password)"]] as const)
+      setTimeout(() => updateSubs.forEach((cb) => cb(text)), ms);
+    return new Promise((_, reject) => setTimeout(() => reject("installation cancelled"), 2000));
+  },
+  onUpdateProgress: (cb) => {
+    updateSubs.add(cb);
+    return () => updateSubs.delete(cb);
+  },
+  openReleasePage: (url) => {
+    window.open(url, "_blank");
+    return Promise.resolve();
+  },
   getAutostart: () => Promise.resolve(mockAutostart),
   setAutostart: (on) => {
     mockAutostart = on;

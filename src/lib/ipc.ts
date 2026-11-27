@@ -8,6 +8,23 @@ import { mockIpc } from "./mock";
 
 export type Target = { strip: number } | { bus: BusId };
 
+export type UpdateChannel = "stable" | "edge";
+export interface UpdateAsset {
+  name: string;
+  url: string;
+  digest: string | null;
+}
+export interface UpdateInfo {
+  channel: UpdateChannel;
+  platform: "arch" | "debian" | "unsupported";
+  currentVersion: string;
+  currentSha: string;
+  available: boolean;
+  latest: string;
+  releaseUrl: string;
+  asset: UpdateAsset | null;
+}
+
 export interface ShortcutInfo {
   available: boolean;
   bindings: Record<string, string>;
@@ -53,6 +70,15 @@ export interface Ipc {
   importSettings(): Promise<string[] | null>;
   /** Bindings changed outside the app (System Settings). */
   onShortcutsChanged(cb: () => void): () => void;
+  /** This build: [version, commit sha]. */
+  getBuildInfo(): Promise<[string, string]>;
+  getUpdateChannel(): Promise<UpdateChannel>;
+  /** Checks GitHub (and remembers the channel). */
+  checkUpdate(channel: UpdateChannel): Promise<UpdateInfo>;
+  /** Download, install (password prompt), restart. Resolves only on failure paths. */
+  installUpdate(platform: UpdateInfo["platform"], asset: UpdateAsset): Promise<void>;
+  onUpdateProgress(cb: (text: string) => void): () => void;
+  openReleasePage(url: string): Promise<void>;
   getAutostart(): Promise<boolean>;
   setAutostart(on: boolean): Promise<void>;
   /** Subscribe to meter frames; returns unsubscribe. */
@@ -105,6 +131,15 @@ function tauriIpc(): Ipc {
       const un = event.then((e) => e.listen("shortcuts_changed", () => cb()));
       return () => void un.then((f) => f());
     },
+    getBuildInfo: () => invoke("get_build_info"),
+    getUpdateChannel: () => invoke("get_update_channel"),
+    checkUpdate: (channel) => invoke("check_update", { channel }),
+    installUpdate: (platform, asset) => invoke("install_update", { platform, asset }),
+    onUpdateProgress: (cb) => {
+      const un = event.then((e) => e.listen<string>("update_progress", (ev) => cb(ev.payload)));
+      return () => void un.then((f) => f());
+    },
+    openReleasePage: (url) => invoke("open_release_page", { url }),
     getAutostart: () => invoke("get_autostart"),
     setAutostart: (on) => invoke("set_autostart", { on }),
     onMeters: (cb) => {
