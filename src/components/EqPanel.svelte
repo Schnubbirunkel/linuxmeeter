@@ -218,6 +218,21 @@
     setBand(hit, { q: Math.round(q * 100) / 100 });
   }
 
+  let others = $derived(mixer.strips.filter((s) => s.id !== strip.id));
+  let copied = $state<string | null>(null);
+
+  /** Give other strips this strip's complete EQ (points, voice color, on/off). */
+  function copyTo(value: string) {
+    const targets = value === "all" ? others : others.filter((s) => String(s.id) === value);
+    for (const t of targets) mixer.setEqParams(t.id, $state.snapshot(strip.eq));
+    if (!targets.length) return;
+    const text = targets.length === 1 ? `copied to ${targets[0].label}` : `copied to ${targets.length} strips`;
+    copied = text;
+    setTimeout(() => {
+      if (copied === text) copied = null;
+    }, 1800);
+  }
+
   function toggleEnabled() {
     mixer.setEqParams(strip.id, { ...strip.eq, enabled: !strip.eq.enabled });
   }
@@ -236,7 +251,27 @@
 <div class="scrim" onclick={(e) => e.target === e.currentTarget && close()}>
   <div class="panel" role="dialog" aria-label="Equalizer">
     <header>
-      <div class="title">EQ <span class="sub">{strip.label}</span></div>
+      <div class="title">EQ <span class="sub">{copied ?? strip.label}</span></div>
+      {#if others.length}
+        <select
+          class="enbtn copy"
+          title="Copy this EQ (points, voice color, on/off) to another strip"
+          value=""
+          onchange={(e) => {
+            const el = e.currentTarget as HTMLSelectElement;
+            copyTo(el.value);
+            el.value = "";
+          }}
+        >
+          <option value="" disabled>COPY TO…</option>
+          {#each others as o (o.id)}
+            <option value={String(o.id)}>{o.label}</option>
+          {/each}
+          {#if others.length > 1}
+            <option value="all">All strips</option>
+          {/if}
+        </select>
+      {/if}
       <button
         class="enbtn"
         title="Reset all bands to defaults"
@@ -346,6 +381,11 @@
     border: 1px solid var(--border-0);
     border-radius: 2px;
     box-shadow: inset 0 1px 0 var(--hl-top);
+  }
+  select.copy {
+    width: auto;
+    padding: 0 4px;
+    cursor: pointer;
   }
   .enbtn.active {
     background: var(--accent-glow);

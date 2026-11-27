@@ -62,7 +62,8 @@ from source (below).
   LV2 plugins inside PipeWire filter-chains; a limiter on every bus
 - **EQ with up to 12 points** — double-click the curve to add one, double-click
   a point (or ×) to remove it, click its name to switch between peak, low/high
-  shelf, low cut and high cut; drag for frequency and gain, mouse wheel for Q
+  shelf, low cut and high cut; drag for frequency and gain, mouse wheel for Q.
+  *COPY TO…* gives another strip (or all of them) the same EQ
 
   ![EQ panel](docs/screenshot-eq.png)
 
