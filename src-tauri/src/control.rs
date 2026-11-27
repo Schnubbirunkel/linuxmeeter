@@ -27,6 +27,9 @@ usage: linuxmeeter ctl <command> [args]
   remove-strip <channel>         remove an input strip
   add-bus a|b                    add a hardware output (A) or virtual mic (B) bus
   remove-bus <bus>               remove a bus
+  clock                          devices dropping out because they follow another clock
+  clock-lead <card>              let that card set the clock (restarts PipeWire)
+  clock-follow <card>            undo clock-lead
   export <file>                  save all profiles and settings to a file
   import <file>                  restore such a file
   profile <name>                 switch profile (a new name copies the current mixer)
@@ -113,6 +116,10 @@ pub enum Action {
     },
     Show,
     Reply(String),
+    /// Show the clock helper's findings.
+    Clock,
+    /// Let a sound card set the clock (true) or stop (false); restarts audio.
+    ClockLead(String, bool),
     /// Write a backup of everything to this file.
     Export(String),
     /// Restore a backup file.
@@ -263,6 +270,11 @@ pub fn parse(args: &[String], state: &AppState) -> Result<Action, String> {
             "previous profile".into(),
         ),
         "show" => Ok(Action::Show),
+        "clock" => Ok(Action::Clock),
+        "clock-lead" | "clock-follow" => {
+            let card = rest.first().ok_or("`clock-lead` needs a card (see `ctl clock`)")?;
+            Ok(Action::ClockLead(card.clone(), cmd == "clock-lead"))
+        }
         "export" | "import" => {
             let path = rest.join(" ");
             if path.is_empty() {

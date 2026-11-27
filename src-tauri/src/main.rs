@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod backup;
+mod clock;
 mod control;
 mod notify;
 mod remote;
@@ -25,6 +26,30 @@ struct AppData {
     notifier: notify::Notifier,
     shortcuts: Arc<OnceLock<Arc<shortcuts::Shortcuts>>>,
     remote: Arc<remote::Remote>,
+    clock: Arc<OnceLock<Arc<clock::Clock>>>,
+}
+
+// ---- clock helper ------------------------------------------------------------------
+
+#[tauri::command]
+fn get_clock(data: tauri::State<AppData>) -> Option<clock::ClockInfo> {
+    data.clock.get().map(|c| c.info())
+}
+
+#[tauri::command]
+fn dismiss_clock(data: tauri::State<AppData>, card: String) {
+    if let Some(c) = data.clock.get() {
+        c.dismiss(&card);
+    }
+}
+
+/// Let `card` set the clock (or stop it), then restart PipeWire and linuxmeeter.
+#[tauri::command]
+fn clock_lead(app: tauri::AppHandle, card: String, lead: bool) -> Result<(), String> {
+    clock::set_leader(&card, lead)?;
+    clock::restart_audio_and_app(std::process::id())?;
+    app.exit(0);
+    Ok(())
 }
 
 // ---- phone remote ---------------------------------------------------------------
@@ -414,6 +439,47 @@ impl Ctl {
                 "ok: shown".into()
             }
             Ok(control::Action::Reply(text)) => format!("ok: {text}"),
+            Ok(control::Action::Clock) => {
+                let data = self.handle.state::<AppData>();
+                let Some(info) = data.clock.get().map(|c| c.info()) else {
+                    return "error: clock helper is still starting".into();
+                };
+                let mut out = String::from("dropping out (follows another clock):");
+                if info.problems.is_empty() {
+                    out += " none";
+                }
+                for p in &info.problems {
+                    out += &format!("\n  {}  {} ({} errors)", p.card, p.description, p.errors);
+                }
+                out += "\nsets the clock (linuxmeeter rule):";
+                if info.leaders.is_empty() {
+                    out += " none";
+                }
+                for l in &info.leaders {
+                    out += &format!("\n  {l}");
+                }
+                if !info.available {
+                    out += "\n(pw-top not found: detection is off)";
+                }
+                format!("ok: {out}")
+            }
+            Ok(control::Action::ClockLead(card, lead)) => {
+                if let Err(e) = clock::set_leader(&card, lead) {
+                    return format!("error: {e}");
+                }
+                match clock::restart_audio_and_app(std::process::id()) {
+                    Ok(()) => {
+                        let h = self.handle.clone();
+                        // Answer first, then go.
+                        std::thread::spawn(move || {
+                            std::thread::sleep(Duration::from_millis(200));
+                            h.exit(0);
+                        });
+                        format!("ok: {card} {}; restarting PipeWire and linuxmeeter", if lead { "sets the clock" } else { "follows again" })
+                    }
+                    Err(e) => format!("error: {e}"),
+                }
+            }
             Ok(control::Action::Export(path)) => {
                 let data = self.handle.state::<AppData>();
                 match export_to(&data, std::path::Path::new(&path)) {
@@ -660,6 +726,7 @@ fn main() {
     let pending: Arc<Mutex<VecDeque<Notify>>> = Arc::new(Mutex::new(VecDeque::new()));
     let shortcut_cell: Arc<OnceLock<Arc<shortcuts::Shortcuts>>> = Arc::new(OnceLock::new());
     let exit_shortcuts = shortcut_cell.clone();
+    let clock_cell: Arc<OnceLock<Arc<clock::Clock>>> = Arc::new(OnceLock::new());
     let remote = {
         let cmd_tx = engine.cmd_tx.clone();
         remote::Remote::new(engine.cmd_tx.clone(), state.clone(), move |n| {
@@ -682,6 +749,7 @@ fn main() {
             notifier: notifier.clone(),
             shortcuts: shortcut_cell.clone(),
             remote: remote.clone(),
+            clock: clock_cell.clone(),
         })
         .invoke_handler(tauri::generate_handler![
             get_state,
@@ -718,6 +786,9 @@ fn main() {
             get_build_info,
             open_release_page,
             set_remote,
+            get_clock,
+            dismiss_clock,
+            clock_lead,
             new_remote_key,
             get_remote,
             install_update,
@@ -832,6 +903,21 @@ fn main() {
                 },
             );
             let _ = shortcut_cell.set(sc);
+
+            // Clock helper: devices that drop out following another clock.
+            let clock_handle = app.handle().clone();
+            let clock_notifier = notifier.clone();
+            let _ = clock_cell.set(clock::Clock::start(state.clone(), move |p| {
+                let _ = clock_handle.emit("clock_problem", p);
+                clock_notifier.send(notify::Note {
+                    key: format!("clock-{}", p.card),
+                    summary: format!("{} keeps dropping out", p.description),
+                    body: "It follows another device's clock. Open linuxmeeter to let it set the clock.".into(),
+                    icon: "dialog-warning",
+                    value: None,
+                    timeout_ms: 10_000,
+                });
+            }));
             app.manage(ctl);
 
             if std::env::args().any(|a| a == "--minimized") {

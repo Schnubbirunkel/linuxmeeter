@@ -6,6 +6,7 @@
   import KeyCapture from "./KeyCapture.svelte";
   import UpdateSection from "./UpdateSection.svelte";
   import RemoteSection from "./RemoteSection.svelte";
+  import ClockSection from "./ClockSection.svelte";
 
   let notifications = $state(true);
   let micTone = $state(true);
@@ -171,6 +172,10 @@
     <div class="sep"></div>
 
     <UpdateSection />
+
+    <div class="sep"></div>
+
+    <ClockSection />
 
     <div class="sep"></div>
 

@@ -96,6 +96,9 @@ from source (below).
 - **Updates in the app** — Settings → Updates checks GitHub and installs the
   new version with one click (Arch and Debian; password prompt, then a
   restart). Follow the releases, or every push to main
+- **Clock helper** — a device that crackles or sounds like a robot because it
+  follows another device's clock (common with wireless USB headsets) is
+  detected; one click lets it set the clock instead (Settings → Clock to undo)
 - **Microphone warning tone** — two short notes on your speakers when the
   microphones are muted (falling) or go live (rising), however you did it;
   played straight to the hardware, never into a virtual mic (can be turned off)

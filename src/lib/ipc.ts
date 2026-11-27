@@ -8,6 +8,18 @@ import { mockIpc } from "./mock";
 
 export type Target = { strip: number } | { bus: BusId };
 
+export interface ClockProblem {
+  card: string;
+  description: string;
+  nodes: string[];
+  errors: number;
+}
+export interface ClockInfo {
+  problems: ClockProblem[];
+  leaders: string[];
+  available: boolean;
+}
+
 export interface RemoteInfo {
   enabled: boolean;
   port: number;
@@ -88,6 +100,12 @@ export interface Ipc {
   installUpdate(platform: UpdateInfo["platform"], asset: UpdateAsset): Promise<void>;
   onUpdateProgress(cb: (text: string) => void): () => void;
   openReleasePage(url: string): Promise<void>;
+  /** Clock helper: devices dropping out because they follow another clock. */
+  getClock(): Promise<ClockInfo | null>;
+  dismissClock(card: string): Promise<void>;
+  /** Let `card` set the clock (or follow again). Restarts PipeWire and the app. */
+  clockLead(card: string, lead: boolean): Promise<void>;
+  onClockProblem(cb: (p: ClockProblem) => void): () => void;
   /** Phone remote: state, on/off, new key. */
   getRemote(): Promise<RemoteInfo>;
   setRemote(enabled: boolean): Promise<RemoteInfo>;
@@ -153,6 +171,13 @@ function tauriIpc(): Ipc {
       return () => void un.then((f) => f());
     },
     openReleasePage: (url) => invoke("open_release_page", { url }),
+    getClock: () => invoke("get_clock"),
+    dismissClock: (card) => invoke("dismiss_clock", { card }),
+    clockLead: (card, lead) => invoke("clock_lead", { card, lead }),
+    onClockProblem: (cb) => {
+      const un = event.then((e) => e.listen<ClockProblem>("clock_problem", (ev) => cb(ev.payload)));
+      return () => void un.then((f) => f());
+    },
     getRemote: () => invoke("get_remote"),
     setRemote: (enabled) => invoke("set_remote", { enabled }),
     newRemoteKey: () => invoke("new_remote_key"),

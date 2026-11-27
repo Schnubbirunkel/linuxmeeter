@@ -106,6 +106,10 @@ let mockMicTone = true;
 let mockChannel: "stable" | "edge" = "stable";
 const updateSubs = new Set<(text: string) => void>();
 let mockRemoteOn = false;
+let mockLeaders: string[] = [];
+let mockClockProblems = [
+  { card: "usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00", description: "Razer BlackShark V2 Pro", nodes: [], errors: 2140 },
+];
 let mockRemoteKey = "3f9a1c0e5b7d2a4f8c6e1b3d5f7a9c2e";
 function mockRemote() {
   const url = `http://192.168.1.42:8723/?k=${mockRemoteKey}`;
@@ -353,6 +357,17 @@ export const mockIpc: Ipc = {
     updateSubs.add(cb);
     return () => updateSubs.delete(cb);
   },
+  getClock: () => Promise.resolve({ problems: [...mockClockProblems], leaders: [...mockLeaders], available: true }),
+  dismissClock: (card) => {
+    mockClockProblems = mockClockProblems.filter((p) => p.card !== card);
+    return Promise.resolve();
+  },
+  clockLead: (card, lead) => {
+    mockClockProblems = mockClockProblems.filter((p) => p.card !== card);
+    mockLeaders = lead ? [...mockLeaders, card] : mockLeaders.filter((l) => l !== card);
+    return Promise.resolve();
+  },
+  onClockProblem: () => () => {},
   getRemote: () => Promise.resolve(mockRemote()),
   setRemote: (on) => {
     mockRemoteOn = on;

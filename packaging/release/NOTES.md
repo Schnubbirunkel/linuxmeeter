@@ -1,5 +1,9 @@
 Fork of [dslapelis/linuxmeeter](https://github.com/dslapelis/linuxmeeter).
 
+## New in 0.5.1
+
+- **Clock helper for crackling / robot voice**: when devices play or record together, one sets the clock and the others follow. Some — wireless USB headsets above all — cannot follow cleanly and crackle or sound like a robot. linuxmeeter now notices (it reads the same error counters as `pw-top`), shows a banner and a desktop notification, and with one click lets that device set the clock instead (a WirePlumber rule; PipeWire and linuxmeeter restart). Settings → Clock lists these devices and can undo it.
+
 ## New in 0.5.0
 
 - **Phone remote**: Settings → Phone remote → scan the QR code. Your phone's browser becomes a remote: faders, mute, "microphones live/muted" and profiles for every strip and bus, with live level meters. No app needed. Only devices on your home network that scanned the code (it contains a random key) can connect; "New code" locks out every phone that had the old one.

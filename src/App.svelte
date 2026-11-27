@@ -7,6 +7,7 @@
   import EqPanel from "./components/EqPanel.svelte";
   import DynPanel from "./components/DynPanel.svelte";
   import SettingsPanel from "./components/SettingsPanel.svelte";
+  import ClockBanner from "./components/ClockBanner.svelte";
 
   onMount(() => {
     void mixer.init();
@@ -18,6 +19,7 @@
 
 <div class="app">
   <TopBar />
+  <ClockBanner />
   {#if mixer.ready}
     <StripRack />
   {:else}

@@ -262,6 +262,12 @@ restarts via `--replace <pid>` (the new process waits for the old one and its de
 CI publishes every push to main to the rolling `edge` pre-release with package version
 `<pkgver>.r<commit count>`; a new `pkgver` also makes a numbered release.
 
+The clock helper (`clock.rs`) samples `pw-top -b -n 2` every 10 s. A device a strip or
+bus uses that is a follower (`+`) and gained ≥ 20 errors is reported (banner, notification,
+`ctl clock`). The fix writes `~/.config/wireplumber/wireplumber.conf.d/60-linuxmeeter-clock.conf`
+(`priority.driver = 3000` for every node of that card, card = node name without
+`alsa_input./alsa_output.` and profile) and restarts WirePlumber, PipeWire and the app.
+
 `src-tauri/src/control.rs` serves `$XDG_RUNTIME_DIR/linuxmeeter.sock`;
 `linuxmeeter ctl …` sends one JSON line and prints the reply (it never starts
 GTK). A second plain launch just sends `show`. `NudgeGain` / `ToggleMute`
