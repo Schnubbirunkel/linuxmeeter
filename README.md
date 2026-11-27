@@ -6,9 +6,10 @@ channel strips into hardware outputs and virtual microphones that Discord,
 OBS, or any recorder can use.
 
 This is a fork of [dslapelis/linuxmeeter](https://github.com/dslapelis/linuxmeeter)
-with as many strips and buses as you need, renaming, profile switching, global
-shortcuts, desktop notifications, a 12-point EQ, gain-reduction displays and
-backups.
+with as many strips and buses as you need, renaming, profile switching, a
+12-point EQ, gain-reduction displays, global shortcuts, a phone remote, desktop
+notifications, a microphone warning tone, a helper for crackling wireless
+headsets, backups, in-app updates, and packages for Arch and Debian.
 
 ![linuxmeeter](docs/screenshot.png)
 
