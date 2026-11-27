@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121317">
+<title>linuxmeeter remote</title>
+<style>
+  :root {
+    --bg-0: #0A0B0D; --bg-1: #121317; --bg-2: #17181D; --bg-3: #1E2026; --bg-4: #262932;
+    --border-0: #26282F; --border-1: #34373F;
+    --text-1: #E8EAED; --text-2: #9BA1AB; --text-3: #5C616B;
+    --accent: #FFB020; --accent-glow: rgba(255,176,32,0.14); --on-accent: #1A1002;
+    --green: #2BD96A; --amber: #F5B800; --red: #FF453A; --mute: #E5484D;
+    --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "JetBrains Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg-1); color: var(--text-1); font: 15px var(--ui); }
+  body { padding: 12px 16px calc(24px + env(safe-area-inset-bottom)); max-width: 640px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .word { font-size: 12px; font-weight: 700; letter-spacing: 0.14em; color: var(--text-2); display: flex; align-items: center; gap: 8px; }
+  .word::before { content: ""; width: 8px; height: 8px; background: var(--accent); border-radius: 1px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); margin-left: auto; }
+  .dot.on { background: var(--green); }
+  select { background: var(--bg-3); color: var(--text-1); border: 1px solid var(--border-1); border-radius: 6px; font: 15px var(--ui); padding: 8px 10px; max-width: 50%; }
+  #mics { width: 100%; height: 60px; border-radius: 10px; border: 1px solid var(--border-1); background: var(--bg-3); color: var(--text-1);
+          font: 700 16px var(--ui); letter-spacing: 0.08em; margin-bottom: 18px; }
+  #mics.muted { background: var(--mute); border-color: var(--mute); color: #fff; }
+  #mics:disabled { opacity: 0.4; }
+  h2 { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-2); margin: 18px 0 8px; }
+  .card { background: var(--bg-2); border: 1px solid var(--border-0); border-radius: 10px; padding: 10px 12px 2px; margin-bottom: 8px; }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .name { flex: 1; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .id { font: 600 11px var(--mono); color: var(--accent); }
+  .db { font: 500 13px var(--mono); color: var(--text-2); min-width: 52px; text-align: right; }
+  .mute { width: 52px; height: 40px; border-radius: 8px; border: 1px solid var(--border-1); background: var(--bg-3); color: var(--text-2); font: 700 13px var(--mono); }
+  .mute.on { background: var(--mute); border-color: var(--mute); color: #fff; }
+  .meter { height: 6px; background: var(--bg-0); border-radius: 3px; margin: 8px 0 0; overflow: hidden; }
+  .meter > div { height: 100%; width: 100%; transform-origin: left; transform: scaleX(0);
+                 background: linear-gradient(90deg, var(--green) 0 70%, var(--amber) 70% 86%, var(--red) 86%); transition: transform 90ms linear; }
+  input[type=range] { width: 100%; height: 44px; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; touch-action: none; }
+  input[type=range]::-webkit-slider-runnable-track { height: 6px; background: var(--bg-4); border-radius: 3px; }
+  input[type=range]::-moz-range-track { height: 6px; background: var(--bg-4); border-radius: 3px; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 30px; height: 30px; margin-top: -12px; border-radius: 50%; background: var(--text-1); border: 3px solid var(--bg-2); box-shadow: 0 1px 4px rgba(0,0,0,0.6); }
+  input[type=range]::-moz-range-thumb { width: 26px; height: 26px; border-radius: 50%; background: var(--text-1); border: 3px solid var(--bg-2); }
+  .off { opacity: 0.45; }
+  #status { text-align: center; color: var(--text-3); font-size: 13px; margin-top: 24px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="word">LINUXMEETER</div>
+  <select id="profile" aria-label="Profile"></select>
+  <div class="dot" id="dot" title="Connection"></div>
+</header>
+<button id="mics" disabled>MICROPHONES</button>
+<h2>Inputs</h2>
+<div id="strips"></div>
+<h2>Buses</h2>
+<div id="buses"></div>
+<div id="status">Connecting…</div>
+
+<script>
+"use strict";
+// Fader taper: keep in step with src/lib/utils/db.ts and lm_protocol::taper.
+const BP = [[0, -72], [0.08, -50], [0.3, -30], [0.55, -12], [0.78, 0], [1, 12]];
+function posToDb(p) {
+  if (p <= 0) return -72;
+  p = Math.min(1, p);
+  for (let i = 0; i < BP.length - 1; i++) {
+    const [p0, d0] = BP[i], [p1, d1] = BP[i + 1];
+    if (p <= p1) return d0 + ((d1 - d0) * (p - p0)) / (p1 - p0);
+  }
+  return 12;
+}
+function dbToPos(db) {
+  if (!(db > -72)) return 0;
+  db = Math.min(12, db);
+  for (let i = 0; i < BP.length - 1; i++) {
+    const [p0, d0] = BP[i], [p1, d1] = BP[i + 1];
+    if (db <= d1) return p0 + ((p1 - p0) * (db - d0)) / (d1 - d0);
+  }
+  return 1;
+}
+const fmtDb = (db) => (db <= -71 ? "-∞" : (db > 0 ? "+" : "") + db.toFixed(1));
+const meterFrac = (db) => Math.max(0, Math.min(1, (db + 60) / 66)); // -60..+6 dBFS
+
+const key = new URLSearchParams(location.search).get("k") || "";
+let ws = null, state = null, retry = 500;
+const dragging = new Set();   // targets the finger is on: ignore echoes for them
+const rows = new Map();       // "s:3" / "b:A1" -> {el, slider, db, mute, meter}
+const $ = (id) => document.getElementById(id);
+
+function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+const targetOf = (k) => (k.startsWith("s:") ? { strip: Number(k.slice(2)) } : { bus: k.slice(2) });
+
+function row(k, label, badge) {
+  const el = document.createElement("div");
+  el.className = "card";
+  el.innerHTML = `<div class="row">${badge ? `<span class="id">${badge}</span>` : ""}<span class="name"></span>
+    <span class="db"></span><button class="mute">M</button></div>
+    <div class="meter"><div></div></div><input type="range" min="0" max="1000" step="1">`;
+  const r = { el, name: el.querySelector(".name"), db: el.querySelector(".db"), mute: el.querySelector(".mute"),
+              slider: el.querySelector("input"), meter: el.querySelector(".meter > div"), pending: null };
+  r.name.textContent = label;
+  let raf = 0;
+  const push = (done) => {
+    const db = Math.round(posToDb(r.slider.value / 1000) * 10) / 10;
+    r.db.textContent = fmtDb(db);
+    send({ cmd: "gain", target: targetOf(k), db, done });
+  };
+  r.slider.addEventListener("pointerdown", () => dragging.add(k));
+  r.slider.addEventListener("input", () => {
+    dragging.add(k);
+    if (!raf) raf = requestAnimationFrame(() => { raf = 0; push(false); });
+  });
+  const end = () => { if (dragging.delete(k)) push(true); };
+  r.slider.addEventListener("change", end);
+  r.slider.addEventListener("pointerup", end);
+  r.slider.addEventListener("pointercancel", end);
+  r.mute.addEventListener("click", () => {
+    const on = !r.mute.classList.contains("on");
+    r.mute.classList.toggle("on", on);
+    send({ cmd: "mute", target: targetOf(k), mute: on });
+  });
+  rows.set(k, r);
+  return r;
+}
+
+function render() {
+  if (!state) return;
+  // Profiles
+  const sel = $("profile");
+  const names = state.profiles && state.profiles.length ? state.profiles : [state.profileName];
+  if (sel.options.length !== names.length || [...sel.options].some((o, i) => o.value !== names[i])) {
+    sel.innerHTML = "";
+    for (const n of names) { const o = document.createElement("option"); o.value = o.textContent = n; sel.appendChild(o); }
+  }
+  sel.value = state.profileName;
+  // Microphones
+  const mics = state.strips.filter((s) => s.kind === "hardware");
+  const allMuted = mics.length > 0 && mics.every((s) => s.mute);
+  const b = $("mics");
+  b.disabled = mics.length === 0;
+  b.classList.toggle("muted", allMuted);
+  b.textContent = mics.length === 0 ? "NO MICROPHONES" : allMuted ? "MICROPHONES MUTED" : "MICROPHONES LIVE";
+  b.title = allMuted ? "Tap to unmute" : "Tap to mute";
+  // Strips and buses, in mixer order
+  const want = [...state.strips.map((s) => ["s:" + s.id, s, null, "strips"]), ...state.buses.map((x) => ["b:" + x.id, x, x.id, "buses"])];
+  const keep = new Set(want.map((w) => w[0]));
+  for (const [k, r] of rows) if (!keep.has(k)) { r.el.remove(); rows.delete(k); }
+  for (const [k, o, badge, box] of want) {
+    const r = rows.get(k) || row(k, o.label, badge);
+    $(box).appendChild(r.el); // keeps order
+    r.name.textContent = o.label;
+    r.el.classList.toggle("off", o.online === false);
+    r.mute.classList.toggle("on", !!o.mute);
+    if (!dragging.has(k)) {
+      r.slider.value = Math.round(dbToPos(o.gainDb) * 1000);
+      r.db.textContent = fmtDb(o.gainDb);
+    }
+  }
+  $("status").textContent = "";
+}
+
+function meters(m) {
+  if (!state) return;
+  state.strips.forEach((s, i) => { const r = rows.get("s:" + s.id); if (r) r.meter.style.transform = `scaleX(${meterFrac(m.strips[i] ?? -90)})`; });
+  state.buses.forEach((x, i) => { const r = rows.get("b:" + x.id); if (r) r.meter.style.transform = `scaleX(${meterFrac(m.buses[i] ?? -90)})`; });
+}
+
+$("mics").addEventListener("click", () => {
+  if (!state) return;
+  const mics = state.strips.filter((s) => s.kind === "hardware");
+  send({ cmd: "mics", mute: !(mics.length > 0 && mics.every((s) => s.mute)) });
+});
+$("profile").addEventListener("change", (e) => send({ cmd: "profile", name: e.target.value }));
+
+function connect() {
+  if (ws && ws.readyState <= 1) return; // already connecting / open
+  ws = new WebSocket(`ws://${location.host}/ws?k=${encodeURIComponent(key)}`);
+  ws.onopen = () => { retry = 500; $("dot").classList.add("on"); };
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "state") { state = msg.state; render(); }
+    else if (msg.type === "meters") meters(msg);
+  };
+  ws.onclose = (ev) => {
+    $("dot").classList.remove("on");
+    $("status").textContent = ev.code === 1006 && !navigator.onLine ? "Offline" : "Disconnected — reconnecting… (is the remote still on in linuxmeeter?)";
+    setTimeout(connect, retry);
+    retry = Math.min(retry * 2, 8000);
+  };
+}
+// Phones park background tabs; reconnect straight away when it comes back.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && (!ws || ws.readyState > 1)) { retry = 500; connect(); }
+});
+connect();
+</script>
+</body>
+</html>

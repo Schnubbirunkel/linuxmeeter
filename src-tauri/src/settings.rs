@@ -17,6 +17,13 @@ pub struct Settings {
     /// Update channel: "stable" (releases) or "edge" (every push to main).
     #[serde(default = "stable")]
     pub update_channel: crate::updater::Channel,
+    /// Phone remote: on/off, port, and the key in its URL / QR code.
+    #[serde(default)]
+    pub remote_enabled: bool,
+    #[serde(default = "remote_port")]
+    pub remote_port: u16,
+    #[serde(default)]
+    pub remote_key: String,
     /// Global shortcuts: ctl action ("toggle-mute strip:3") -> keys ("Ctrl+Alt+M").
     #[serde(default)]
     pub shortcuts: BTreeMap<String, String>,
@@ -24,6 +31,10 @@ pub struct Settings {
 
 fn yes() -> bool {
     true
+}
+
+fn remote_port() -> u16 {
+    crate::remote::DEFAULT_PORT
 }
 
 fn stable() -> crate::updater::Channel {
@@ -36,6 +47,9 @@ impl Default for Settings {
             notifications: true,
             mic_tone: true,
             update_channel: crate::updater::Channel::Stable,
+            remote_enabled: false,
+            remote_port: crate::remote::DEFAULT_PORT,
+            remote_key: String::new(),
             shortcuts: BTreeMap::new(),
         }
     }

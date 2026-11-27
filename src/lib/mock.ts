@@ -105,6 +105,16 @@ let mockNotifications = true;
 let mockMicTone = true;
 let mockChannel: "stable" | "edge" = "stable";
 const updateSubs = new Set<(text: string) => void>();
+let mockRemoteOn = false;
+let mockRemoteKey = "3f9a1c0e5b7d2a4f8c6e1b3d5f7a9c2e";
+function mockRemote() {
+  const url = `http://192.168.1.42:8723/?k=${mockRemoteKey}`;
+  // A stand-in pattern; the real app renders a scannable code.
+  const cells = Array.from({ length: 21 * 21 }, (_, i) => (((i * 7919) ^ (i >> 3)) % 3 === 0 ? 1 : 0));
+  const rects = cells.map((c, i) => (c ? `<rect x="${(i % 21) + 2}" y="${Math.floor(i / 21) + 2}" width="1" height="1"/>` : "")).join("");
+  const qrSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25 25" width="180" height="180"><rect width="25" height="25" fill="#fff"/><g fill="#000">${rects}</g></svg>`;
+  return { enabled: mockRemoteOn, port: 8723, url, qrSvg, clients: mockRemoteOn ? 1 : 0, error: null };
+}
 const mockShortcuts: Record<string, string> = { "toggle-mute-mics": "Meta+M" };
 
 function emitState(): void {
@@ -342,6 +352,15 @@ export const mockIpc: Ipc = {
   onUpdateProgress: (cb) => {
     updateSubs.add(cb);
     return () => updateSubs.delete(cb);
+  },
+  getRemote: () => Promise.resolve(mockRemote()),
+  setRemote: (on) => {
+    mockRemoteOn = on;
+    return Promise.resolve(mockRemote());
+  },
+  newRemoteKey: () => {
+    mockRemoteKey = Math.random().toString(16).slice(2).padEnd(32, "0");
+    return Promise.resolve(mockRemote());
   },
   openReleasePage: (url) => {
     window.open(url, "_blank");

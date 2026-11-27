@@ -372,6 +372,9 @@ pub enum EngineCommand {
     /// Restore a backup: write each (profile name, TOML text), then switch to
     /// `active` without saving the running mixer over it first.
     ImportProfiles { files: Vec<(String, String)>, active: String },
+    /// Emit a `State` now (e.g. after gain changes from the phone remote,
+    /// which the desktop window should follow).
+    RequestState,
     /// Play the microphone warning tone: rising (mics live) or falling (muted).
     Beep { rising: bool },
     /// Mute or unmute every hardware input strip at once; emits `State`.

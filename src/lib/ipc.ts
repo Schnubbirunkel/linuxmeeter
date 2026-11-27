@@ -8,6 +8,15 @@ import { mockIpc } from "./mock";
 
 export type Target = { strip: number } | { bus: BusId };
 
+export interface RemoteInfo {
+  enabled: boolean;
+  port: number;
+  url: string;
+  qrSvg: string;
+  clients: number;
+  error: string | null;
+}
+
 export type UpdateChannel = "stable" | "edge";
 export interface UpdateAsset {
   name: string;
@@ -79,6 +88,10 @@ export interface Ipc {
   installUpdate(platform: UpdateInfo["platform"], asset: UpdateAsset): Promise<void>;
   onUpdateProgress(cb: (text: string) => void): () => void;
   openReleasePage(url: string): Promise<void>;
+  /** Phone remote: state, on/off, new key. */
+  getRemote(): Promise<RemoteInfo>;
+  setRemote(enabled: boolean): Promise<RemoteInfo>;
+  newRemoteKey(): Promise<RemoteInfo>;
   getAutostart(): Promise<boolean>;
   setAutostart(on: boolean): Promise<void>;
   /** Subscribe to meter frames; returns unsubscribe. */
@@ -140,6 +153,9 @@ function tauriIpc(): Ipc {
       return () => void un.then((f) => f());
     },
     openReleasePage: (url) => invoke("open_release_page", { url }),
+    getRemote: () => invoke("get_remote"),
+    setRemote: (enabled) => invoke("set_remote", { enabled }),
+    newRemoteKey: () => invoke("new_remote_key"),
     getAutostart: () => invoke("get_autostart"),
     setAutostart: (on) => invoke("set_autostart", { on }),
     onMeters: (cb) => {

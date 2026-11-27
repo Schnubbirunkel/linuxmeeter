@@ -1122,6 +1122,7 @@ impl Engine {
                     None => self.send_state(),
                 }
             }
+            EngineCommand::RequestState => self.send_state(),
             EngineCommand::Beep { rising } => {
                 // Straight to the hardware: the remembered default device (never
                 // one of ours), else the first A bus's device.

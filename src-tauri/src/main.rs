@@ -3,6 +3,7 @@
 mod backup;
 mod control;
 mod notify;
+mod remote;
 mod settings;
 mod shortcuts;
 mod updater;
@@ -23,6 +24,57 @@ struct AppData {
     state: Arc<RwLock<Option<AppState>>>,
     notifier: notify::Notifier,
     shortcuts: Arc<OnceLock<Arc<shortcuts::Shortcuts>>>,
+    remote: Arc<remote::Remote>,
+}
+
+// ---- phone remote ---------------------------------------------------------------
+
+/// Turn the phone remote on (new key on first use) or off.
+#[tauri::command]
+fn set_remote(data: tauri::State<AppData>, enabled: bool) -> remote::RemoteInfo {
+    let mut s = settings::get();
+    if enabled && s.remote_key.is_empty() {
+        s.remote_key = remote::new_token();
+    }
+    s.remote_enabled = enabled;
+    let _ = settings::update(|x| {
+        x.remote_enabled = s.remote_enabled;
+        x.remote_key = s.remote_key.clone();
+    });
+    remote_apply(&data.remote, &s)
+}
+
+/// A new key: every phone has to scan the new QR code.
+#[tauri::command]
+fn new_remote_key(data: tauri::State<AppData>) -> remote::RemoteInfo {
+    let key = remote::new_token();
+    let _ = settings::update(|x| x.remote_key = key.clone());
+    remote_apply(&data.remote, &settings::get())
+}
+
+#[tauri::command]
+fn get_remote(data: tauri::State<AppData>) -> remote::RemoteInfo {
+    let s = settings::get();
+    data.remote.info(s.remote_enabled && data.remote.is_running(), s.remote_port, &s.remote_key, None)
+}
+
+fn remote_apply(r: &remote::Remote, s: &settings::Settings) -> remote::RemoteInfo {
+    if !s.remote_enabled {
+        r.stop();
+        return r.info(false, s.remote_port, &s.remote_key, None);
+    }
+    let err = r.start(s.remote_port, &s.remote_key).err();
+    r.info(err.is_none(), s.remote_port, &s.remote_key, err)
+}
+
+/// Meters run while the window is visible or a phone is connected.
+static WINDOW_METERS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+static REMOTE_CLIENTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+fn apply_meters(cmd_tx: &pipewire::channel::Sender<EngineCommand>) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let on = WINDOW_METERS.load(Relaxed) || REMOTE_CLIENTS.load(Relaxed) > 0;
+    let _ = cmd_tx.send(EngineCommand::SetMetersEnabled { on });
 }
 
 #[derive(serde::Serialize)]
@@ -316,8 +368,9 @@ fn set_default_output(data: tauri::State<AppData>, on: bool) -> Result<(), Strin
 /// script evaluation in the webview plus a canvas repaint per meter, so a
 /// mixer parked in the tray should not be paying for either.
 fn set_meters<R: tauri::Runtime, M: Manager<R>>(manager: &M, on: bool) {
+    WINDOW_METERS.store(on, std::sync::atomic::Ordering::Relaxed);
     if let Some(data) = manager.try_state::<AppData>() {
-        let _ = data.cmd_tx.send(EngineCommand::SetMetersEnabled { on });
+        apply_meters(&data.cmd_tx);
     }
 }
 
@@ -607,6 +660,19 @@ fn main() {
     let pending: Arc<Mutex<VecDeque<Notify>>> = Arc::new(Mutex::new(VecDeque::new()));
     let shortcut_cell: Arc<OnceLock<Arc<shortcuts::Shortcuts>>> = Arc::new(OnceLock::new());
     let exit_shortcuts = shortcut_cell.clone();
+    let remote = {
+        let cmd_tx = engine.cmd_tx.clone();
+        remote::Remote::new(engine.cmd_tx.clone(), state.clone(), move |n| {
+            REMOTE_CLIENTS.store(n, std::sync::atomic::Ordering::Relaxed);
+            apply_meters(&cmd_tx);
+        })
+    };
+    {
+        let s = settings::get();
+        if s.remote_enabled && !s.remote_key.is_empty() {
+            let _ = remote_apply(&remote, &s);
+        }
+    }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -615,6 +681,7 @@ fn main() {
             state: state.clone(),
             notifier: notifier.clone(),
             shortcuts: shortcut_cell.clone(),
+            remote: remote.clone(),
         })
         .invoke_handler(tauri::generate_handler![
             get_state,
@@ -650,6 +717,9 @@ fn main() {
             get_update_channel,
             get_build_info,
             open_release_page,
+            set_remote,
+            new_remote_key,
+            get_remote,
             install_update,
             export_settings,
             import_settings,
@@ -669,6 +739,7 @@ fn main() {
             let pump_pending = pending.clone();
             let pump_notifier = notifier.clone();
             let pump_cmd = engine.cmd_tx.clone();
+            let pump_remote = remote.clone();
             let mut tray_model = TrayModel::default();
             std::thread::Builder::new()
                 .name("lm-event-pump".into())
@@ -679,6 +750,7 @@ fn main() {
                                 let previous =
                                     pump_state.write().expect("state lock").replace(s.clone());
                                 let _ = handle.emit("state_changed", &s);
+                                pump_remote.publish_state(&s);
                                 if let Some(prev) = &previous {
                                     if let Some(rising) = control::mic_mute_change(prev, &s) {
                                         if settings::get().mic_tone {
@@ -715,6 +787,7 @@ fn main() {
                                 }
                             }
                             EngineEvent::Meters(f) => {
+                                pump_remote.publish_meters(&f);
                                 let _ = handle.emit("meters", &f);
                             }
                         }
