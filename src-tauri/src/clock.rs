@@ -375,7 +375,7 @@ S   53      0      0    ---     ---   ---   ---     0                  bluez_mid
         assert_eq!(p.nodes.len(), 2, "input and output of the headset");
         // The onboard card gained 2 errors: under the threshold.
         // Already a leader: not reported again.
-        assert!(detect(&stats, &last, &app(), &[p.card.clone()]).is_empty());
+        assert!(detect(&stats, &last, &app(), std::slice::from_ref(&p.card)).is_empty());
         // No earlier sample: nothing to compare.
         assert!(detect(&stats, &HashMap::new(), &app(), &[]).is_empty());
     }
