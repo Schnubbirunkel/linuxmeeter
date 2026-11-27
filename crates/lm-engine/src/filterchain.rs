@@ -122,20 +122,6 @@ pub fn virtual_strip_args(sink_name: &str, label: &str, autoconnect_output: bool
 /// node (`hw_target` = its `node.name`), processed through the same
 /// gate → comp → EQ graph. Output appears as `<strip_name>.out`.
 pub fn hardware_strip_args(strip_name: &str, label: &str, hw_target: &str) -> String {
-    hardware_strip_args_with(strip_name, label, hw_target, false)
-}
-
-/// `stable_buffer`: the capture node forces the graph quantum to
-/// `STABLE_QUANTUM` while it runs (see `StripState::stable_buffer`).
-pub fn hardware_strip_args_with(strip_name: &str, label: &str, hw_target: &str, stable_buffer: bool) -> String {
-    let mut v = hardware_strip_value(strip_name, label, hw_target);
-    if stable_buffer {
-        v["capture.props"]["node.force-quantum"] = json!(lm_protocol::STABLE_QUANTUM);
-    }
-    v.to_string()
-}
-
-fn hardware_strip_value(strip_name: &str, label: &str, hw_target: &str) -> serde_json::Value {
     json!({
         "node.description": label,
         "media.name": label,
@@ -175,7 +161,7 @@ fn hardware_strip_value(strip_name: &str, label: &str, hw_target: &str) -> serde
             "state.restore-props": false,
         },
     })
-    
+    .to_string()
 }
 
 /// Module args for an output bus.
@@ -306,15 +292,6 @@ mod tests {
 
     /// The routing matrix owns every link; letting the session manager
     /// autoconnect strip outputs would duplicate audio paths.
-    #[test]
-    fn stable_buffer_forces_the_quantum_on_the_capture_node_only() {
-        let plain = parse(&hardware_strip_args("lm.strip.1", "Mic", "alsa_input.x"));
-        assert!(plain["capture.props"].get("node.force-quantum").is_none());
-        let stable = parse(&hardware_strip_args_with("lm.strip.1", "Mic", "alsa_input.x", true));
-        assert_eq!(stable["capture.props"]["node.force-quantum"], lm_protocol::STABLE_QUANTUM);
-        assert!(stable["playback.props"].get("node.force-quantum").is_none());
-    }
-
     /// Every stream names its channels, so its ports carry FL/FR and the
     /// link reconciler pairs them by channel rather than guessing.
     #[test]

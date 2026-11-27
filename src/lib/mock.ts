@@ -215,11 +215,6 @@ export const mockIpc: Ipc = {
     if (s) s.hwKey = hwKey;
     return Promise.resolve();
   },
-  setStableBuffer: (stripId, on) => {
-    const s = findStrip(stripId);
-    if (s) s.stableBuffer = on;
-    return Promise.resolve();
-  },
   setBusTarget: (bus, hwKey) => {
     const b = state.buses.find((x) => x.id === bus);
     if (b) b.targetHwKey = hwKey;

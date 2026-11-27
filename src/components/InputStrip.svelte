@@ -36,15 +36,6 @@
     {deviceDisplay}
     {deviceOptions}
     deviceDisabled={strip.kind === "virtual"}
-    deviceToggle={strip.kind === "hardware"
-      ? {
-          label: "Stable buffer",
-          title:
-            "Keep PipeWire's buffer at 1024 frames (≈21 ms) while this input runs. Fixes crackling / robot voice on wireless USB headsets when other programs ask for low latency.",
-          on: !!strip.stableBuffer,
-          ontoggle: (on) => mixer.setStableBuffer(strip.id, on),
-        }
-      : undefined}
     ondevicechange={(v) => mixer.setStripDevice(strip.id, v)}
     onrename={(v) => mixer.rename({ strip: strip.id }, v)}
     nameTitle={`Shortcut id: strip:${strip.id}`}

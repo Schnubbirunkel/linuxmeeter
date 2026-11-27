@@ -156,7 +156,6 @@ mod tests {
             gate: GateParams::default(),
             comp: Default::default(),
             eq: EqParams::default(),
-            stable_buffer: false,
         }
     }
 

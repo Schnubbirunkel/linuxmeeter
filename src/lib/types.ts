@@ -63,8 +63,6 @@ export interface StripState {
   gate: GateParams;
   comp: CompParams;
   eq: EqParams;
-  /** Hardware strips: hold the graph buffer at 1024 frames while this strip runs. */
-  stableBuffer?: boolean;
 }
 
 export interface BusState {

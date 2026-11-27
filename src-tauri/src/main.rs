@@ -227,11 +227,6 @@ fn set_limiter_params(data: tauri::State<AppData>, bus: BusId, params: LimiterPa
 }
 
 #[tauri::command]
-fn set_stable_buffer(data: tauri::State<AppData>, strip_id: StripId, on: bool) -> Result<(), String> {
-    send(&data, EngineCommand::SetStableBuffer { strip: strip_id, on })
-}
-
-#[tauri::command]
 fn set_strip_device(data: tauri::State<AppData>, strip_id: StripId, hw_key: String) -> Result<(), String> {
     send(&data, EngineCommand::SetStripDevice { strip: strip_id, hw_key })
 }
@@ -699,7 +694,6 @@ fn main() {
             set_eq_params,
             set_limiter_params,
             set_strip_device,
-            set_stable_buffer,
             set_bus_target,
             set_default_output,
             add_strip,

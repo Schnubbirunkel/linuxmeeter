@@ -159,12 +159,6 @@ class MixerStore {
     void ipc.setStripDevice(stripId, hwKey);
   }
 
-  setStableBuffer(stripId: number, on: boolean): void {
-    const s = this.strip(stripId);
-    if (s) s.stableBuffer = on;
-    void ipc.setStableBuffer(stripId, on);
-  }
-
   setBusTarget(bus: BusId, hwKey: string): void {
     const b = this.bus(bus);
     if (b) b.targetHwKey = hwKey;

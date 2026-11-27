@@ -50,7 +50,6 @@ export interface Ipc {
   setEqParams(stripId: number, params: EqParams): Promise<void>;
   setLimiterParams(bus: BusId, params: LimiterParams): Promise<void>;
   setStripDevice(stripId: number, hwKey: string): Promise<void>;
-  setStableBuffer(stripId: number, on: boolean): Promise<void>;
   setBusTarget(bus: BusId, hwKey: string): Promise<void>;
   setDefaultOutput(on: boolean): Promise<void>;
   /** Rename a strip or bus — also renames the PipeWire device other programs see. */
@@ -122,7 +121,6 @@ function tauriIpc(): Ipc {
     setEqParams: (stripId, params) => invoke("set_eq_params", { stripId, params }),
     setLimiterParams: (bus, params) => invoke("set_limiter_params", { bus, params }),
     setStripDevice: (stripId, hwKey) => invoke("set_strip_device", { stripId, hwKey }),
-    setStableBuffer: (stripId, on) => invoke("set_stable_buffer", { stripId, on }),
     setBusTarget: (bus, hwKey) => invoke("set_bus_target", { bus, hwKey }),
     setDefaultOutput: (on) => invoke("set_default_output", { on }),
     rename: (target, label) => invoke("rename", { target, label }),

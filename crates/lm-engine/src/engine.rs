@@ -23,7 +23,7 @@ use pipewire::node::Node;
 use pipewire::proxy::Listener as ProxyListener;
 use pipewire::types::ObjectType;
 
-use crate::filterchain::{bus_args, hardware_strip_args_with, virtual_strip_args, LoadedModule};
+use crate::filterchain::{bus_args, hardware_strip_args, virtual_strip_args, LoadedModule};
 use crate::links::LinkManager;
 use crate::meter::{MeterTap, SILENT_DB};
 use crate::params;
@@ -202,7 +202,6 @@ impl Engine {
                 gate: GateParams::default(),
                 comp: CompParams::default(),
                 eq: EqParams::default(),
-                stable_buffer: false,
             });
             next_id += 1;
         }
@@ -220,7 +219,6 @@ impl Engine {
                 gate: GateParams::default(),
                 comp: CompParams::default(),
                 eq: EqParams::default(),
-                stable_buffer: false,
             });
             next_id += 1;
         }
@@ -290,9 +288,7 @@ impl Engine {
 
     fn load_strip_module(&mut self, strip: &StripState) {
         let args = match (&strip.kind, &strip.hw_key) {
-            (StripKind::Hardware, Some(hw)) => {
-                hardware_strip_args_with(&strip.node_base(), &strip.label, hw, strip.stable_buffer)
-            }
+            (StripKind::Hardware, Some(hw)) => hardware_strip_args(&strip.node_base(), &strip.label, hw),
             _ => virtual_strip_args(&strip.node_base(), &strip.label, false),
         };
         match LoadedModule::load(&self.context, "libpipewire-module-filter-chain", &args) {
@@ -596,7 +592,6 @@ impl Engine {
             gate: GateParams::default(),
             comp: CompParams::default(),
             eq: EqParams::default(),
-            stable_buffer: false,
         };
         // Hardware strips are listed before virtual ones (as in the window),
         // and the meter taps follow the same order as `app.strips`.
@@ -980,16 +975,6 @@ impl Engine {
                     s.hw_key = Some(hw_key);
                     s.online = known;
                 }
-                self.reload_strip(strip);
-                self.sync_pre_taps();
-                self.send_state();
-            }
-            EngineCommand::SetStableBuffer { strip, on } => {
-                let Some(s) = self.app.strips.iter_mut().find(|s| s.id == strip) else { return };
-                if s.kind != StripKind::Hardware || s.stable_buffer == on {
-                    return;
-                }
-                s.stable_buffer = on;
                 self.reload_strip(strip);
                 self.sync_pre_taps();
                 self.send_state();

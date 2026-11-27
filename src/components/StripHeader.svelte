@@ -13,7 +13,6 @@
     deviceOptions: Option[];
     ondevicechange?: (value: string) => void;
     deviceDisabled?: boolean;
-    deviceToggle?: { label: string; title: string; on: boolean; ontoggle: (on: boolean) => void };
     /** Double-click the name to rename; omitted = not renamable. */
     onrename?: (label: string) => void;
     /** Extra tooltip line for the name (e.g. the id for shortcuts). */
@@ -30,7 +29,6 @@
     deviceOptions,
     ondevicechange,
     deviceDisabled,
-    deviceToggle,
     onrename,
     nameTitle,
     onremove,
@@ -114,7 +112,6 @@
     options={deviceOptions}
     onchange={ondevicechange}
     disabled={deviceDisabled}
-    toggle={deviceToggle}
   />
 </div>
 

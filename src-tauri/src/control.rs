@@ -369,7 +369,6 @@ mod tests {
             gate: Default::default(),
             comp: Default::default(),
             eq: Default::default(),
-            stable_buffer: false,
         };
         let bus = |id, label: &str| BusState {
             id,

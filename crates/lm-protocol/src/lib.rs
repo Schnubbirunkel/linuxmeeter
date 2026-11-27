@@ -217,15 +217,7 @@ pub struct StripState {
     /// `default` so profiles written before the EQ existed still load.
     #[serde(default)]
     pub eq: EqParams,
-    /// Hardware strips: keep the graph's buffer at STABLE_QUANTUM while this
-    /// strip runs. Wireless USB headsets that follow another device's clock
-    /// drop out ("robot voice") when apps pull the buffer down.
-    #[serde(default)]
-    pub stable_buffer: bool,
 }
-
-/// Buffer size (frames) a strip with `stable_buffer` holds the graph at.
-pub const STABLE_QUANTUM: u32 = 1024;
 
 impl StripState {
     /// Base node name; virtual strips' sink node carries this name directly.
@@ -341,8 +333,6 @@ pub enum EngineCommand {
     SetLimiterParams { bus: BusId, params: LimiterParams },
     /// Point a hardware strip at a different capture device (module reload).
     SetStripDevice { strip: StripId, hw_key: String },
-    /// Turn a hardware strip's stable buffer on/off (module reload).
-    SetStableBuffer { strip: StripId, on: bool },
     /// Point an A-bus at a different output device (module reload).
     SetBusTarget { bus: BusId, hw_key: String },
     /// Make the System strip the system-wide default output (VoiceMeeter
@@ -500,7 +490,6 @@ mod tests {
             gate: GateParams::default(),
             comp: CompParams::default(),
             eq: EqParams::default(),
-            stable_buffer: false,
         }
     }
 
