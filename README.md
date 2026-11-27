@@ -86,6 +86,16 @@ from source (below).
   they work everywhere, also with the window hidden, and show up in System
   Settings → Shortcuts. On other desktops, bind the `linuxmeeter ctl …`
   commands Settings lists to keys in the desktop's own shortcut settings
+- **Phone remote** — Settings → Phone remote, scan the QR code: your phone's
+  browser controls every fader, mute, the microphones and the profile, with
+  live meters. No app; only devices on your network with the code's key
+  connect
+
+  <img src="docs/screenshot-phone.png" alt="Phone remote" width="300">
+
+- **Updates in the app** — Settings → Updates checks GitHub and installs the
+  new version with one click (Arch and Debian; password prompt, then a
+  restart). Follow the releases, or every push to main
 - **Microphone warning tone** — two short notes on your speakers when the
   microphones are muted (falling) or go live (rising), however you did it;
   played straight to the hardware, never into a virtual mic (can be turned off)

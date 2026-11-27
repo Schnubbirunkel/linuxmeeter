@@ -36,9 +36,12 @@
   .db { font: 500 13px var(--mono); color: var(--text-2); min-width: 52px; text-align: right; }
   .mute { width: 52px; height: 40px; border-radius: 8px; border: 1px solid var(--border-1); background: var(--bg-3); color: var(--text-2); font: 700 13px var(--mono); }
   .mute.on { background: var(--mute); border-color: var(--mute); color: #fff; }
-  .meter { height: 6px; background: var(--bg-0); border-radius: 3px; margin: 8px 0 0; overflow: hidden; }
-  .meter > div { height: 100%; width: 100%; transform-origin: left; transform: scaleX(0);
-                 background: linear-gradient(90deg, var(--green) 0 70%, var(--amber) 70% 86%, var(--red) 86%); transition: transform 90ms linear; }
+  /* The colour zones stay put (-60..+6 dBFS: amber from -18, red from -6);
+     a dark cover shrinking to the right reveals them up to the level. */
+  .meter { height: 6px; border-radius: 3px; margin: 8px 0 0; overflow: hidden;
+           background: linear-gradient(90deg, var(--green) 0 63.6%, var(--amber) 63.6% 81.8%, var(--red) 81.8%); }
+  .meter > div { height: 100%; width: 102%; margin-left: -1%; background: var(--bg-0); transform-origin: right; transform: scaleX(1);
+                 transition: transform 90ms linear; }
   input[type=range] { width: 100%; height: 44px; margin: 0; background: transparent; -webkit-appearance: none; appearance: none; touch-action: none; }
   input[type=range]::-webkit-slider-runnable-track { height: 6px; background: var(--bg-4); border-radius: 3px; }
   input[type=range]::-moz-range-track { height: 6px; background: var(--bg-4); border-radius: 3px; }
@@ -166,8 +169,8 @@ function render() {
 
 function meters(m) {
   if (!state) return;
-  state.strips.forEach((s, i) => { const r = rows.get("s:" + s.id); if (r) r.meter.style.transform = `scaleX(${meterFrac(m.strips[i] ?? -90)})`; });
-  state.buses.forEach((x, i) => { const r = rows.get("b:" + x.id); if (r) r.meter.style.transform = `scaleX(${meterFrac(m.buses[i] ?? -90)})`; });
+  state.strips.forEach((s, i) => { const r = rows.get("s:" + s.id); if (r) r.meter.style.transform = `scaleX(${1 - meterFrac(m.strips[i] ?? -90)})`; });
+  state.buses.forEach((x, i) => { const r = rows.get("b:" + x.id); if (r) r.meter.style.transform = `scaleX(${1 - meterFrac(m.buses[i] ?? -90)})`; });
 }
 
 $("mics").addEventListener("click", () => {

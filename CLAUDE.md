@@ -248,6 +248,20 @@ written atomically). Backups (`backup.rs`, `ctl export|import`, Settings panel) 
 every profile, the active one and `app.toml`; the engine writes imported profiles itself
 (`ImportProfiles`) so its autosave cannot race the import.
 
+The phone remote (`remote.rs` + `remote.html`, axum on port 8723) is off by default.
+Requests need the key from `app.toml` (in the QR code's URL) and a local source address
+(`is_local`). One WebSocket per phone: the pump publishes every `State` and every third
+`MeterFrame`; `SetGain` from a phone is followed by `RequestState` (throttled) so the
+window follows. Meters stay enabled while a phone is connected (`apply_meters`).
+
+The updater (`updater.rs`) reads GitHub releases: "stable" compares the latest release
+tag with `LM_BUILD_VERSION`, "edge" compares the commit in `linuxmeeter-edge-<arch|debian>.sha`
+with `LM_BUILD_SHA` (both set by `src-tauri/build.rs` from CI env or git). It downloads
+the platform's package, checks GitHub's sha256 `digest`, installs with `pkexec`, and
+restarts via `--replace <pid>` (the new process waits for the old one and its devices).
+CI publishes every push to main to the rolling `edge` pre-release with package version
+`<pkgver>.r<commit count>`; a new `pkgver` also makes a numbered release.
+
 `src-tauri/src/control.rs` serves `$XDG_RUNTIME_DIR/linuxmeeter.sock`;
 `linuxmeeter ctl …` sends one JSON line and prints the reply (it never starts
 GTK). A second plain launch just sends `show`. `NudgeGain` / `ToggleMute`

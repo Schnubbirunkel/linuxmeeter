@@ -1,5 +1,10 @@
 Fork of [dslapelis/linuxmeeter](https://github.com/dslapelis/linuxmeeter).
 
+## New in 0.5.0
+
+- **Phone remote**: Settings → Phone remote → scan the QR code. Your phone's browser becomes a remote: faders, mute, "microphones live/muted" and profiles for every strip and bus, with live level meters. No app needed. Only devices on your home network that scanned the code (it contains a random key) can connect; "New code" locks out every phone that had the old one.
+- **Updates from inside the app**: Settings → Updates shows your version, checks GitHub, and installs with one click (Arch and Debian; asks for your password, then restarts linuxmeeter). Choose *Releases* or *Every push* — the latter follows every change pushed to main as soon as it is built.
+
 ## New in 0.4.1
 
 - **Fix: the microphone warning tone did not play** on real hardware. The tone's stream was closed after a fixed 0.8 s — before a sound card waking from standby (or a Bluetooth headset) was ready. It now stays until the tone has actually played.
@@ -21,10 +26,10 @@ Add/remove strips and buses (up to 16 strips, A1–A4, B1–B3), devices visible
 
 **Arch Linux**
 
-    sudo pacman -U linuxmeeter-0.4.1-1-x86_64.pkg.tar.zst
+    sudo pacman -U linuxmeeter-*-x86_64.pkg.tar.zst
 
 **Debian 13 (trixie)**
 
-    sudo apt install ./linuxmeeter_0.4.1_amd64.deb
+    sudo apt install ./linuxmeeter_*_amd64.deb
 
 Both pull in PipeWire, WirePlumber, `lsp-plugins-lv2` and the WebKitGTK / tray libraries.
