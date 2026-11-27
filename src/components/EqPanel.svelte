@@ -226,7 +226,7 @@
     const targets = value === "all" ? others : others.filter((s) => String(s.id) === value);
     for (const t of targets) mixer.setEqParams(t.id, $state.snapshot(strip.eq));
     if (!targets.length) return;
-    const text = targets.length === 1 ? `copied to ${targets[0].label}` : `copied to ${targets.length} strips`;
+    const text = targets.length === 1 ? `copied to ${targets[0]!.label}` : `copied to ${targets.length} strips`;
     copied = text;
     setTimeout(() => {
       if (copied === text) copied = null;
