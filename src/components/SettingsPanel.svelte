@@ -91,6 +91,8 @@
     }, 1200);
   }
 
+  let sinks = $derived(mixer.devices.filter((d) => d.mediaClass === "Audio/Sink" && !d.nodeName.startsWith("lm.")));
+
   let backupMsg = $state<{ text: string; error?: boolean } | null>(null);
   async function exportAll() {
     try {
@@ -151,6 +153,29 @@
       <button class="toggle" class:active={micTone} aria-pressed={micTone} onclick={toggleMicTone}>
         {micTone ? "ON" : "OFF"}
       </button>
+    </div>
+
+    <div class="setting">
+      <div>
+        <div class="label">Volume keys</div>
+        <div class="hint">
+          What the keyboard's volume keys and a headset's volume wheel control in profile <b>{mixer.profileName}</b>:
+          a hardware output, or whatever the desktop uses (with DEFAULT OUT on, the System strip).
+        </div>
+      </div>
+      <select
+        class="select"
+        value={mixer.volumeDevice ?? ""}
+        onchange={(e) => mixer.setVolumeDevice((e.currentTarget as HTMLSelectElement).value || null)}
+      >
+        <option value="">Desktop default</option>
+        {#each sinks as d (d.nodeName)}
+          <option value={d.nodeName}>{d.description}</option>
+        {/each}
+        {#if mixer.volumeDevice && !sinks.some((d) => d.nodeName === mixer.volumeDevice)}
+          <option value={mixer.volumeDevice}>{mixer.volumeDevice} (not connected)</option>
+        {/if}
+      </select>
     </div>
 
     <div class="setting">
@@ -328,6 +353,16 @@
     border: 1px solid var(--border-0);
     border-radius: 2px;
     box-shadow: inset 0 1px 0 var(--hl-top);
+  }
+  .select {
+    width: 170px;
+    height: 22px;
+    padding: 0 4px;
+    font: 500 10px var(--mono);
+    background: var(--bg-3);
+    color: var(--text-1);
+    border: 1px solid var(--border-0);
+    border-radius: 2px;
   }
   .toggle {
     width: 48px;

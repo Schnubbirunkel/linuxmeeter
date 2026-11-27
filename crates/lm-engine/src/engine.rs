@@ -103,6 +103,7 @@ impl Engine {
         }
         let profile = crate::persist::Profile {
             take_default_output: self.app.take_default_output,
+            volume_device: self.app.volume_device.clone(),
             strips: self.app.strips.clone(),
             buses: self.app.buses.clone(),
         };
@@ -139,6 +140,7 @@ impl Engine {
                 media_class: n.media_class.clone(),
                 serial: n.serial,
                 channels: 2,
+                id: n.id,
             })
             .collect();
         devices.sort_by(|a, b| a.node_name.cmp(&b.node_name));
@@ -156,6 +158,7 @@ impl Engine {
             self.app.strips = p.strips;
             self.app.buses = p.buses;
             self.app.take_default_output = p.take_default_output;
+            self.app.volume_device = p.volume_device;
             self.app.profile_name = profile_name;
             for s in &mut self.app.strips {
                 if s.kind == StripKind::Hardware {
@@ -466,6 +469,7 @@ impl Engine {
             self.app.profile_name = name;
             let was_default = self.app.take_default_output;
             self.app.take_default_output = p.take_default_output;
+            self.app.volume_device = p.volume_device;
             if was_default && !p.take_default_output {
                 self.apply_default_output(false);
             }
@@ -490,6 +494,7 @@ impl Engine {
         self.app.strips = p.strips;
         self.app.buses = p.buses;
         self.app.profile_name = name;
+        self.app.volume_device = p.volume_device.clone();
         for strip in self.app.strips.clone() {
             for b in &self.app.buses {
                 let on = strip.routes.get(&b.id).copied().unwrap_or(false);
@@ -1085,6 +1090,11 @@ impl Engine {
                 self.reload_strip(strip);
                 self.sync_pre_taps();
                 self.send_state();
+            }
+            EngineCommand::SetVolumeDevice { node } => {
+                self.app.volume_device = node;
+                self.send_state();
+                self.save_now();
             }
             EngineCommand::SetBusTarget { bus, hw_key } => {
                 if let Some(b) = self.app.buses.iter_mut().find(|b| b.id == bus) {

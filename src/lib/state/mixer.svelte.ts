@@ -15,6 +15,7 @@ class MixerStore {
   profileName = $state("Default");
   profiles = $state<string[]>([]);
   takeDefaultOutput = $state(false);
+  volumeDevice = $state<string | null>(null);
   ready = $state(false);
   error = $state<string | null>(null);
 
@@ -72,6 +73,12 @@ class MixerStore {
     this.profileName = s.profileName;
     this.profiles = s.profiles ?? [s.profileName];
     this.takeDefaultOutput = s.takeDefaultOutput;
+    this.volumeDevice = s.volumeDevice ?? null;
+  }
+
+  setVolumeDevice(node: string | null): void {
+    this.volumeDevice = node;
+    void ipc.setVolumeDevice(node);
   }
 
   #find(t: Target): StripState | BusState | undefined {

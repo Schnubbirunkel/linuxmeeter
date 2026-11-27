@@ -8,8 +8,8 @@ OBS, or any recorder can use.
 This is a fork of [dslapelis/linuxmeeter](https://github.com/dslapelis/linuxmeeter)
 with as many strips and buses as you need, renaming, profile switching, a
 12-point EQ, gain-reduction displays, global shortcuts, a phone remote, desktop
-notifications, a microphone warning tone, a helper for crackling wireless
-headsets, backups, in-app updates, and packages for Arch and Debian.
+notifications, a microphone warning tone, volume keys that follow the profile's
+hardware output, a helper for crackling wireless headsets, backups, in-app updates, and packages for Arch and Debian.
 
 ![linuxmeeter](docs/screenshot.png)
 
@@ -81,6 +81,12 @@ from source (below).
   hand-editable)
 
   ![Profile menu](docs/screenshot-profiles.png)
+
+- **Volume keys per profile** — choose which hardware output the keyboard's
+  volume keys and a headset's volume wheel control (onboard, USB headset,
+  HDMI …) or leave them with the desktop; switching profile switches the
+  device. On KDE Plasma linuxmeeter borrows the keys from Plasma's volume
+  control while needed (with its volume display) and gives them back on quit
 
 - **Global shortcuts** — set keys in Settings (gear icon): mute and ±5 % per
   strip and bus, mute all microphones, next/previous profile. On KDE Plasma

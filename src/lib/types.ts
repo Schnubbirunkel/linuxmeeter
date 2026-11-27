@@ -81,6 +81,8 @@ export interface DeviceInfo {
   mediaClass: string;
   serial: number;
   channels: number;
+  /** PipeWire global id. */
+  id?: number;
 }
 
 export interface AppState {
@@ -92,6 +94,8 @@ export interface AppState {
   profiles: string[];
   /** True while linuxmeeter's System strip is the system default output. */
   takeDefaultOutput: boolean;
+  /** The active profile's main output: what the volume keys control (null = the desktop's default). */
+  volumeDevice?: string | null;
 }
 
 /** One batched meter update, ~30/s. Channel layout: [peakL, peakR, rmsL, rmsR] in dBFS. */

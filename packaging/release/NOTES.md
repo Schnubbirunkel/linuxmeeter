@@ -1,5 +1,9 @@
 Fork of [dslapelis/linuxmeeter](https://github.com/dslapelis/linuxmeeter).
 
+## New in 0.5.2
+
+- **Volume keys per profile**: Settings → Volume keys picks which hardware output the keyboard's volume keys and a headset's volume wheel control in the current profile — onboard sound, USB headset, HDMI … — or, as before, whatever the desktop uses. Switch profile and the keys follow. With DEFAULT OUT on, the keys used to move linuxmeeter's System strip; now they can turn the headset itself up and down, with KDE's volume display. On KDE Plasma linuxmeeter takes the keys over from Plasma's volume control while a profile has a main output, and gives them back when it has none or linuxmeeter quits (also on logout). `linuxmeeter ctl volume-keys <output|default>` and `ctl device-volume up|down|mute` do the same from scripts or other desktops.
+
 ## New in 0.5.1
 
 - **Clock helper for crackling / robot voice**: when devices play or record together, one sets the clock and the others follow. Some — wireless USB headsets above all — cannot follow cleanly and crackle or sound like a robot. linuxmeeter now notices (it reads the same error counters as `pw-top`), shows a banner and a desktop notification, and with one click lets that device set the clock instead (a WirePlumber rule; PipeWire and linuxmeeter restart). Settings → Clock lists these devices and can undo it.

@@ -24,6 +24,10 @@ pub struct Settings {
     pub remote_port: u16,
     #[serde(default)]
     pub remote_key: String,
+    /// Plasma's own volume-key bindings while linuxmeeter holds them
+    /// (kmix action -> key sequences), to give back.
+    #[serde(default)]
+    pub kmix_volume_keys: BTreeMap<String, Vec<Vec<i32>>>,
     /// Global shortcuts: ctl action ("toggle-mute strip:3") -> keys ("Ctrl+Alt+M").
     #[serde(default)]
     pub shortcuts: BTreeMap<String, String>,
@@ -50,6 +54,7 @@ impl Default for Settings {
             remote_enabled: false,
             remote_port: crate::remote::DEFAULT_PORT,
             remote_key: String::new(),
+            kmix_volume_keys: BTreeMap::new(),
             shortcuts: BTreeMap::new(),
         }
     }

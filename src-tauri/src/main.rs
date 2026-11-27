@@ -8,6 +8,7 @@ mod remote;
 mod settings;
 mod shortcuts;
 mod updater;
+mod volkeys;
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
@@ -220,6 +221,49 @@ fn set_shortcut(
 ) -> Result<Option<String>, String> {
     let sc = data.shortcuts.get().ok_or("shortcuts are still starting")?;
     sc.set(&action, keys.as_deref())
+}
+
+/// The profile's main output for the volume keys (None = the desktop's default).
+#[tauri::command]
+fn set_volume_device(data: tauri::State<AppData>, node: Option<String>) -> Result<(), String> {
+    send(&data, EngineCommand::SetVolumeDevice { node })
+}
+
+/// A volume-key step on the profile's main output, with Plasma's volume OSD.
+fn device_volume(state: &AppState, step: &str, sc: Option<&Arc<shortcuts::Shortcuts>>) -> String {
+    // A main output that is not plugged in: fall back to the default device
+    // rather than leaving the keys dead.
+    let target = state
+        .volume_device
+        .as_ref()
+        .and_then(|node| {
+            state
+                .devices
+                .iter()
+                .find(|d| &d.node_name == node && d.id != 0)
+        })
+        .map(|d| d.id.to_string())
+        .unwrap_or_else(|| "@DEFAULT_AUDIO_SINK@".to_string());
+    let args = volkeys::wpctl_args(&target, step);
+    match std::process::Command::new("wpctl").args(&args).status() {
+        Ok(st) if st.success() => {}
+        Ok(st) => return format!("error: wpctl {st}"),
+        Err(e) => return format!("error: wpctl: {e}"),
+    }
+    let now = std::process::Command::new("wpctl")
+        .args(["get-volume", &target])
+        .output()
+        .ok()
+        .and_then(|o| volkeys::parse_wpctl_volume(&String::from_utf8_lossy(&o.stdout)));
+    match now {
+        Some((pct, muted)) => {
+            if let Some(sc) = sc {
+                sc.osd_volume(if muted { 0 } else { pct });
+            }
+            format!("ok: {pct} %{}", if muted { " (muted)" } else { "" })
+        }
+        None => "ok: done".into(),
+    }
 }
 
 fn send(data: &tauri::State<AppData>, cmd: EngineCommand) -> Result<(), String> {
@@ -550,6 +594,10 @@ impl Ctl {
                 "ok: shown".into()
             }
             Ok(control::Action::Reply(text)) => format!("ok: {text}"),
+            Ok(control::Action::DeviceVolume(step)) => {
+                let data = self.handle.state::<AppData>();
+                device_volume(&current, &step, data.shortcuts.get())
+            }
             Ok(control::Action::Clock) => {
                 let data = self.handle.state::<AppData>();
                 let Some(info) = data.clock.get().map(|c| c.info()) else {
@@ -892,6 +940,8 @@ fn main() {
     let shortcut_cell: Arc<OnceLock<Arc<shortcuts::Shortcuts>>> = Arc::new(OnceLock::new());
     let exit_shortcuts = shortcut_cell.clone();
     let clock_cell: Arc<OnceLock<Arc<clock::Clock>>> = Arc::new(OnceLock::new());
+    let volkeys_cell: Arc<OnceLock<Arc<volkeys::VolumeKeys>>> = Arc::new(OnceLock::new());
+    let exit_volkeys = volkeys_cell.clone();
     let remote = {
         let cmd_tx = engine.cmd_tx.clone();
         remote::Remote::new(engine.cmd_tx.clone(), state.clone(), move |n| {
@@ -943,6 +993,7 @@ fn main() {
             set_notifications,
             get_exe_path,
             get_shortcuts,
+            set_volume_device,
             set_shortcut,
             get_mic_tone,
             set_mic_tone,
@@ -976,6 +1027,7 @@ fn main() {
             let pump_notifier = notifier.clone();
             let pump_cmd = engine.cmd_tx.clone();
             let pump_remote = remote.clone();
+            let pump_volkeys = volkeys_cell.clone();
             let mut tray_model = TrayModel::default();
             std::thread::Builder::new()
                 .name("lm-event-pump".into())
@@ -987,6 +1039,9 @@ fn main() {
                                     pump_state.write().expect("state lock").replace(s.clone());
                                 let _ = handle.emit("state_changed", &s);
                                 pump_remote.publish_state(&s);
+                                if let Some(vk) = pump_volkeys.get() {
+                                    vk.sync(s.volume_device.is_some());
+                                }
                                 if let Some(prev) = &previous {
                                     if let Some(rising) = control::mic_mute_change(prev, &s) {
                                         if settings::get().mic_tone {
@@ -1067,7 +1122,35 @@ fn main() {
                     let _ = changed_handle.emit("shortcuts_changed", ());
                 },
             );
+            // Volume keys -> the profile's main output (takes them from Plasma).
+            let vk = Arc::new(volkeys::VolumeKeys::new(sc.clone()));
+            if let Some(s) = state.read().expect("state lock").as_ref() {
+                vk.sync(s.volume_device.is_some());
+            }
+            let _ = volkeys_cell.set(vk);
             let _ = shortcut_cell.set(sc);
+
+            // Logout / `kill`: quit like the tray's Quit, so the volume keys go
+            // back to Plasma and the devices are removed cleanly.
+            let sig_handle = app.handle().clone();
+            std::thread::Builder::new().name("lm-signals".into()).spawn(move || {
+                use tokio::signal::unix::{signal, SignalKind};
+                let Ok(rt) = tokio::runtime::Builder::new_current_thread().enable_io().build() else { return };
+                rt.block_on(async {
+                    let (Ok(mut term), Ok(mut int), Ok(mut hup)) =
+                        (signal(SignalKind::terminate()), signal(SignalKind::interrupt()), signal(SignalKind::hangup()))
+                    else {
+                        return;
+                    };
+                    tokio::select! {
+                        _ = term.recv() => {}
+                        _ = int.recv() => {}
+                        _ = hup.recv() => {}
+                    }
+                });
+                tracing::info!("signal received, quitting");
+                sig_handle.exit(0);
+            })?;
 
             // Clock helper: devices that drop out following another clock.
             let clock_handle = app.handle().clone();
@@ -1107,6 +1190,10 @@ fn main() {
         .run(move |_app, event| {
             if let tauri::RunEvent::Exit = event {
                 let _ = std::fs::remove_file(control::socket_path());
+                // Plasma gets its volume keys back.
+                if let Some(vk) = exit_volkeys.get() {
+                    vk.sync(false);
+                }
                 if let Some(sc) = exit_shortcuts.get() {
                     sc.deactivate();
                 }

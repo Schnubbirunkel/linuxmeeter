@@ -66,6 +66,7 @@ const state: AppState = {
   profileName: "Default",
   profiles: ["Default", "Gaming", "Recording"],
   takeDefaultOutput: false,
+  volumeDevice: null,
   strips: [
     { id: 1, kind: "hardware", label: "Mic", hwKey: "alsa_input.usb-ZOOM_Corporation_UAC-2", online: true, gainDb: -4, mute: false, solo: false, routes: routes(["A2", "B1"]), gate: defaultGate(), comp: defaultComp(), eq: defaultEq() },
     { id: 2, kind: "hardware", label: "Line In", hwKey: "alsa_input.pci-0000_31_00.4.analog-stereo", online: true, gainDb: -12, mute: false, solo: false, routes: routes(["A1"]), gate: defaultGate(), comp: defaultComp(), eq: defaultEq() },
@@ -259,6 +260,11 @@ export const mockIpc: Ipc = {
   getMicTone: () => Promise.resolve(mockMicTone),
   setMicTone: (on) => {
     mockMicTone = on;
+    return Promise.resolve();
+  },
+  setVolumeDevice: (node) => {
+    state.volumeDevice = node;
+    emitState();
     return Promise.resolve();
   },
   setNotifications: (on) => {

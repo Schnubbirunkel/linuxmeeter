@@ -268,6 +268,15 @@ bus uses that is a follower (`+`) and gained ≥ 20 errors is reported (banner, 
 (`priority.driver = 3000` for every node of that card, card = node name without
 `alsa_input./alsa_output.` and profile) and restarts WirePlumber, PipeWire and the app.
 
+Volume keys (`volkeys.rs`): a profile's `volume_device` (an `alsa_output…` node name,
+`SetVolumeDevice`, `ctl volume-keys`) is what the keyboard volume keys / headset wheel
+control. While it is set, `VolumeKeys::sync` (pump, on each `State`) saves Plasma's
+`kmix` bindings (`increase_volume`, `decrease_volume`, `mute`) to `app.toml`
+`kmix_volume_keys`, clears them with `setForeignShortcutKeys`, and binds the same keys to
+our `device-volume up|down|mute`, which runs `wpctl` on the device's id and shows
+Plasma's OSD. Unset — and on exit, including SIGTERM/SIGINT/SIGHUP (`lm-signals` thread
+→ `app.exit`) — the keys go back to `kmix`. A missing device falls back to the default sink.
+
 `src-tauri/src/control.rs` serves `$XDG_RUNTIME_DIR/linuxmeeter.sock`;
 `linuxmeeter ctl …` sends one JSON line and prints the reply (it never starts
 GTK). A second plain launch just sends `show`. `NudgeGain` / `ToggleMute`

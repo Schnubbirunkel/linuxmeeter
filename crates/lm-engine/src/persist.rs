@@ -15,6 +15,10 @@ use serde::{Deserialize, Serialize};
 pub struct Profile {
     #[serde(default)]
     pub take_default_output: bool,
+    /// The hardware output the volume keys control in this profile
+    /// (node.name); None = the desktop's default device, as usual.
+    #[serde(default)]
+    pub volume_device: Option<String>,
     pub strips: Vec<StripState>,
     pub buses: Vec<BusState>,
 }
@@ -172,6 +176,7 @@ mod tests {
     fn profile(strips: Vec<StripState>) -> Profile {
         Profile {
             take_default_output: false,
+            volume_device: None,
             strips,
             buses: vec![BusState {
                 id: BusId::A1,

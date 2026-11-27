@@ -349,6 +349,9 @@ pub struct DeviceInfo {
     pub media_class: String,
     pub serial: u64,
     pub channels: u32,
+    /// PipeWire global id (changes when the device reappears; for wpctl).
+    #[serde(default)]
+    pub id: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -363,6 +366,10 @@ pub struct AppState {
     pub profiles: Vec<String>,
     /// True while linuxmeeter's System strip is the system default output.
     pub take_default_output: bool,
+    /// This profile's main hardware output: the volume keys (keyboard,
+    /// headset wheel) control it. None = the desktop handles them as usual.
+    #[serde(default)]
+    pub volume_device: Option<String>,
 }
 
 /// One batched meter update, ~30/s. Channel layout: [peakL, peakR, rmsL, rmsR]
@@ -429,6 +436,10 @@ pub enum EngineCommand {
     SetStripDevice {
         strip: StripId,
         hw_key: String,
+    },
+    /// Set (or clear) the profile's main hardware output for the volume keys.
+    SetVolumeDevice {
+        node: Option<String>,
     },
     /// Point an A-bus at a different output device (module reload).
     SetBusTarget {
@@ -728,10 +739,12 @@ mod tests {
                 media_class: "Audio/Sink".into(),
                 serial: 42,
                 channels: 2,
+                id: 7,
             }],
             profile_name: "Default".into(),
             profiles: vec!["Default".into()],
             take_default_output: true,
+            volume_device: None,
         })
         .expect("serialize");
 

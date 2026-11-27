@@ -26,4 +26,4 @@ sha2 = "0.10"
 axum = { version = "0.8", features = ["ws"] }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 getrandom = "0.3"
-tokio = { version = "1", features = ["sync", "net", "rt", "macros"] }
+tokio = { version = "1", features = ["sync", "net", "rt", "macros", "signal"] }

@@ -423,6 +423,7 @@ S   53      0      0    ---     ---   ---   ---     0                  bluez_mid
             media_class: "Audio/Source".into(),
             serial: 1,
             channels: 2,
+            id: 1,
         };
         AppState {
             strips: vec![strip],

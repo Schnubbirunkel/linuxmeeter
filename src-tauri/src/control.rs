@@ -27,6 +27,8 @@ usage: linuxmeeter ctl <command> [args]
   remove-strip <channel>         remove an input strip
   add-bus a|b                    add a hardware output (A) or virtual mic (B) bus
   remove-bus <bus>               remove a bus
+  volume-keys [<output>|default] what the volume keys control in this profile
+  device-volume up|down|mute     the profile's main output (what the volume keys control)
   clock                          devices dropping out because they follow another clock
   clock-lead <card>              let that card set the clock (restarts PipeWire)
   clock-follow <card>            undo clock-lead
@@ -124,6 +126,8 @@ pub enum Action {
     },
     Show,
     Reply(String),
+    /// Volume step on the profile's main output (or the default device).
+    DeviceVolume(String),
     /// Show the clock helper's findings.
     Clock,
     /// Let a sound card set the clock (true) or stop (false); restarts audio.
@@ -207,6 +211,35 @@ pub fn parse(args: &[String], state: &AppState) -> Result<Action, String> {
                 Some(Notify::Mics),
                 reply.into(),
             )
+        }
+        "volume-keys" => {
+            // What the volume keys control in this profile: a hardware output
+            // (node name or description) or `default`.
+            let want = rest.join(" ");
+            if want.is_empty() {
+                return Ok(Action::Reply(
+                    state
+                        .volume_device
+                        .clone()
+                        .unwrap_or_else(|| "default".into()),
+                ));
+            }
+            let node = if want == "default" {
+                None
+            } else {
+                let d = state
+                    .devices
+                    .iter()
+                    .filter(|d| d.media_class == "Audio/Sink")
+                    .find(|d| d.node_name == want || d.description.eq_ignore_ascii_case(&want))
+                    .ok_or_else(|| format!("no output device `{want}`"))?;
+                Some(d.node_name.clone())
+            };
+            let reply = format!(
+                "volume keys: {}",
+                node.as_deref().unwrap_or("desktop default")
+            );
+            engine(EngineCommand::SetVolumeDevice { node }, None, reply)
         }
         "volume-up" | "volume-down" => {
             let (target, label) = channel(0)?;
@@ -302,6 +335,10 @@ pub fn parse(args: &[String], state: &AppState) -> Result<Action, String> {
         ),
         "show" => Ok(Action::Show),
         "clock" => Ok(Action::Clock),
+        "device-volume" => match rest.first().map(String::as_str) {
+            Some(step @ ("up" | "down" | "mute")) => Ok(Action::DeviceVolume(step.to_string())),
+            _ => Err("`device-volume` needs up, down or mute".into()),
+        },
         "clock-lead" | "clock-follow" => {
             let card = rest
                 .first()

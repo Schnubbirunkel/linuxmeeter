@@ -31,6 +31,7 @@ pub fn collect(state: &AppState) -> Result<Backup, String> {
     }
     let live = lm_engine::persist::Profile {
         take_default_output: state.take_default_output,
+        volume_device: state.volume_device.clone(),
         strips: state.strips.clone(),
         buses: state.buses.clone(),
     };

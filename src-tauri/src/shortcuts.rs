@@ -157,6 +157,11 @@ pub fn describe(action: &str) -> String {
         "toggle-mute-mics" => "Mute all microphones",
         "profile-next" => "Next profile",
         "profile-prev" => "Previous profile",
+        "device-volume" => match target {
+            "up" => return "Volume up (profile's main output)".into(),
+            "down" => return "Volume down (profile's main output)".into(),
+            _ => return "Mute (profile's main output)".into(),
+        },
         other => other,
     };
     format!("{verb} {target}").trim().to_string()
@@ -358,6 +363,88 @@ impl Shortcuts {
             }
         })?;
         Ok(stored)
+    }
+
+    // ---- other components' shortcuts (the volume keys) ------------------------
+
+    /// Key sequences another component's action is bound to.
+    pub fn foreign_keys(&self, component: &str, action: &str) -> Vec<Vec<i32>> {
+        let id = vec![
+            component.to_string(),
+            action.to_string(),
+            String::new(),
+            String::new(),
+        ];
+        self.call("shortcutKeys", &(id,))
+            .ok()
+            .and_then(|m| m.body().deserialize::<Vec<(Vec<i32>,)>>().ok())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(k,)| k)
+            .filter(|k| k.iter().any(|c| *c != 0))
+            .collect()
+    }
+
+    /// Rebind another component's action (empty = no keys).
+    pub fn set_foreign(
+        &self,
+        component: &str,
+        action: &str,
+        keys: &[Vec<i32>],
+    ) -> Result<(), String> {
+        let id = vec![
+            component.to_string(),
+            action.to_string(),
+            String::new(),
+            String::new(),
+        ];
+        let keys: Vec<(Vec<i32>,)> = keys.iter().map(|k| (k.clone(),)).collect();
+        self.call("setForeignShortcutKeys", &(id, keys)).map(|_| ())
+    }
+
+    /// Register one of our actions on exact key sequences (not saved in app.toml).
+    pub fn bind_sequences(&self, action: &str, keys: &[Vec<i32>]) -> Result<(), String> {
+        let id = action_id(action);
+        self.call("doRegister", &(id.clone(),))?;
+        let keys: Vec<(Vec<i32>,)> = keys.iter().map(|k| (k.clone(),)).collect();
+        self.call("setShortcutKeys", &(id, keys, SET_PRESENT | NO_AUTOLOADING))?;
+        self.registered
+            .lock()
+            .expect("lock")
+            .insert(action.into(), describe(action));
+        Ok(())
+    }
+
+    /// Drop one of our actions.
+    pub fn unbind(&self, action: &str) {
+        let _ = self.bind(action, None);
+    }
+
+    /// Plasma's volume OSD, showing `percent` (Plasma 6, then Plasma 5 form).
+    pub fn osd_volume(&self, percent: i32) {
+        let Some(conn) = &self.conn else { return };
+        let call = |body: &dyn Fn() -> Result<zbus::message::Message, zbus::Error>| body().is_ok();
+        let six = || {
+            conn.call_method(
+                Some("org.kde.plasmashell"),
+                "/org/kde/osdService",
+                Some("org.kde.osdService"),
+                "volumeChanged",
+                &(percent, 100i32),
+            )
+        };
+        let five = || {
+            conn.call_method(
+                Some("org.kde.plasmashell"),
+                "/org/kde/osdService",
+                Some("org.kde.osdService"),
+                "volumeChanged",
+                &(percent,),
+            )
+        };
+        if !call(&six) {
+            let _ = call(&five);
+        }
     }
 
     /// Release the keys while the app is not running (KDE keeps the bindings).

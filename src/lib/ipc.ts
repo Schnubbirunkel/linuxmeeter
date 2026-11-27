@@ -73,6 +73,8 @@ export interface Ipc {
   /** Warning tone when the microphones are muted / go live. */
   getMicTone(): Promise<boolean>;
   setMicTone(on: boolean): Promise<void>;
+  /** The active profile's main output for the volume keys (null = the desktop's default). */
+  setVolumeDevice(node: string | null): Promise<void>;
   setNotifications(on: boolean): Promise<void>;
   /** Absolute path of the app binary, for `<exe> ctl …` shortcut commands. */
   getExePath(): Promise<string>;
@@ -148,6 +150,7 @@ function tauriIpc(): Ipc {
     getNotifications: () => invoke("get_notifications"),
     getMicTone: () => invoke("get_mic_tone"),
     setMicTone: (on) => invoke("set_mic_tone", { on }),
+    setVolumeDevice: (node) => invoke("set_volume_device", { node }),
     setNotifications: (on) => invoke("set_notifications", { on }),
     getExePath: () => invoke("get_exe_path"),
     addStrip: (kind) => invoke("add_strip", { kind }),
