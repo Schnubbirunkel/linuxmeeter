@@ -1,5 +1,9 @@
 Fork of [dslapelis/linuxmeeter](https://github.com/dslapelis/linuxmeeter).
 
+## New in 0.6.2
+
+- **Clock helper: no more tie between two leaders.** When a device drops out following a device that already sets the clock on purpose (e.g. a wireless lavalier following a headset that was given the clock), giving it the clock too would only tie the two — one of them would drop out again. The helper now offers a **larger buffer** for that device instead (ALSA period and headroom 1024): it keeps following, cleanly, with a little more delay on that device only. The banner also names the device it follows. Settings → Clock lists both kinds of rule; `ctl clock-buffer <card>` does it from the command line.
+
 ## New in 0.6.1
 
 - **Fix: changes in an input strip's EQ window did nothing in 0.6.0** (the window called itself instead of sending the change). The output EQ was not affected.

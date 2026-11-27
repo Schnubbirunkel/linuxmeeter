@@ -15,11 +15,12 @@
     });
   });
 
-  async function lead(card: string) {
+  async function fix(p: ClockProblem) {
     busy = true;
     error = null;
+    const card = p.card;
     try {
-      await ipc.clockLead(card, true);
+      await ipc.clockFix(card, p.remedy);
       // linuxmeeter restarts; nothing after this normally runs.
       problems = problems.filter((p) => p.card !== card);
     } catch (e) {
@@ -44,18 +45,27 @@
     </svg>
     <div class="text">
       {#if confirming === p.card}
-        Let <b>{p.description}</b> set the clock? PipeWire and linuxmeeter restart — audio stops for a few seconds.
+        {p.remedy === "buffer" ? "Give" : "Let"} <b>{p.description}</b>
+        {p.remedy === "buffer" ? "a larger buffer" : "set the clock"}? PipeWire and linuxmeeter restart — audio stops for
+        a few seconds.
+      {:else if p.remedy === "buffer"}
+        <b>{p.description}</b> keeps dropping out ({p.errors} errors in 10 s) following the clock of
+        <b>{p.follows ?? "another device"}</b>, which sets the clock on purpose. A larger buffer lets it follow
+        cleanly (a little more delay on this device only).
       {:else}
-        <b>{p.description}</b> keeps dropping out ({p.errors} errors in 10 s): it follows another device's clock.
-        Letting it set the clock usually fixes crackling and robot voice.
+        <b>{p.description}</b> keeps dropping out ({p.errors} errors in 10 s): it follows
+        {p.follows ? `the clock of ${p.follows}` : "another device's clock"}. Letting it set the clock usually fixes
+        crackling and robot voice.
       {/if}
       {#if error}<span class="err">{error}</span>{/if}
     </div>
     {#if confirming === p.card}
-      <button class="btn primary" disabled={busy} onclick={() => lead(p.card)}>RESTART AUDIO</button>
+      <button class="btn primary" disabled={busy} onclick={() => fix(p)}>RESTART AUDIO</button>
       <button class="btn" disabled={busy} onclick={() => (confirming = null)}>CANCEL</button>
     {:else}
-      <button class="btn primary" onclick={() => (confirming = p.card)}>LET IT SET THE CLOCK</button>
+      <button class="btn primary" onclick={() => (confirming = p.card)}>
+        {p.remedy === "buffer" ? "LARGER BUFFER" : "LET IT SET THE CLOCK"}
+      </button>
       <button class="btn" onclick={() => dismiss(p.card)}>NOT NOW</button>
     {/if}
   </div>

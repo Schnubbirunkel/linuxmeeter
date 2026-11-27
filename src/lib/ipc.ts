@@ -13,10 +13,16 @@ export interface ClockProblem {
   description: string;
   nodes: string[];
   errors: number;
+  /** The device it follows, if known. */
+  follows: string | null;
+  /** "buffer" when what it follows sets the clock on purpose (a second leader would tie). */
+  remedy: ClockFix;
 }
+export type ClockFix = "lead" | "buffer";
 export interface ClockInfo {
   problems: ClockProblem[];
   leaders: string[];
+  buffered: string[];
   available: boolean;
 }
 
@@ -107,8 +113,8 @@ export interface Ipc {
   /** Clock helper: devices dropping out because they follow another clock. */
   getClock(): Promise<ClockInfo | null>;
   dismissClock(card: string): Promise<void>;
-  /** Let `card` set the clock (or follow again). Restarts PipeWire and the app. */
-  clockLead(card: string, lead: boolean): Promise<void>;
+  /** Give `card` a clock fix (null = remove it). Restarts PipeWire and the app. */
+  clockFix(card: string, fix: ClockFix | null): Promise<void>;
   onClockProblem(cb: (p: ClockProblem) => void): () => void;
   /** Phone remote: state, on/off, new key. */
   getRemote(): Promise<RemoteInfo>;
@@ -179,7 +185,7 @@ function tauriIpc(): Ipc {
     openReleasePage: (url) => invoke("open_release_page", { url }),
     getClock: () => invoke("get_clock"),
     dismissClock: (card) => invoke("dismiss_clock", { card }),
-    clockLead: (card, lead) => invoke("clock_lead", { card, lead }),
+    clockFix: (card, fix) => invoke("clock_fix", { card, fix }),
     onClockProblem: (cb) => {
       const un = event.then((e) => e.listen<ClockProblem>("clock_problem", (ev) => cb(ev.payload)));
       return () => void un.then((f) => f());

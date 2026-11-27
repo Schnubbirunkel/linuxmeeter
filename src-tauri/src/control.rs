@@ -31,7 +31,8 @@ usage: linuxmeeter ctl <command> [args]
   device-volume up|down|mute     the profile's main output (what the volume keys control)
   clock                          devices dropping out because they follow another clock
   clock-lead <card>              let that card set the clock (restarts PipeWire)
-  clock-follow <card>            undo clock-lead
+  clock-buffer <card>            let it follow with a larger buffer (restarts PipeWire)
+  clock-follow <card>            undo clock-lead / clock-buffer
   export <file>                  save all profiles and settings to a file
   import <file>                  restore such a file
   profile <name>                 switch profile (a new name copies the current mixer)
@@ -130,8 +131,8 @@ pub enum Action {
     DeviceVolume(String),
     /// Show the clock helper's findings.
     Clock,
-    /// Let a sound card set the clock (true) or stop (false); restarts audio.
-    ClockLead(String, bool),
+    /// Give a sound card a clock fix (None = remove it); restarts audio.
+    ClockFix(String, Option<crate::clock::Fix>),
     /// Write a backup of everything to this file.
     Export(String),
     /// Restore a backup file.
@@ -339,11 +340,16 @@ pub fn parse(args: &[String], state: &AppState) -> Result<Action, String> {
             Some(step @ ("up" | "down" | "mute")) => Ok(Action::DeviceVolume(step.to_string())),
             _ => Err("`device-volume` needs up, down or mute".into()),
         },
-        "clock-lead" | "clock-follow" => {
+        "clock-lead" | "clock-buffer" | "clock-follow" => {
             let card = rest
                 .first()
-                .ok_or("`clock-lead` needs a card (see `ctl clock`)")?;
-            Ok(Action::ClockLead(card.clone(), cmd == "clock-lead"))
+                .ok_or_else(|| format!("`{cmd}` needs a card (see `ctl clock`)"))?;
+            let fix = match cmd.as_str() {
+                "clock-lead" => Some(crate::clock::Fix::Lead),
+                "clock-buffer" => Some(crate::clock::Fix::Buffer),
+                _ => None,
+            };
+            Ok(Action::ClockFix(card.clone(), fix))
         }
         "export" | "import" => {
             let path = rest.join(" ");

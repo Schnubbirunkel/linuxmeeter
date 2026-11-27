@@ -12,7 +12,7 @@
   async function follow(card: string) {
     busy = true;
     try {
-      await ipc.clockLead(card, false);
+      await ipc.clockFix(card, null);
     } finally {
       busy = false;
     }
@@ -23,15 +23,15 @@
 <div class="hint">
   When devices play or record together, one sets the clock and the others follow it. Some (wireless USB headsets
   above all) cannot follow cleanly and crackle or sound like a robot; linuxmeeter watches for that and offers to let
-  them set the clock.
+  them set the clock — or, when what they follow sets the clock on purpose, a larger buffer.
   {#if info && !info.available}<span class="warn">Detection is off: <code>pw-top</code> was not found.</span>{/if}
 </div>
-{#if info?.leaders.length}
+{#if info && info.leaders.length + info.buffered.length}
   <div class="list">
-    {#each info.leaders as card (card)}
+    {#each [...info.leaders.map((c) => ({ card: c, tag: "sets the clock" })), ...info.buffered.map((c) => ({ card: c, tag: "larger buffer" }))] as { card, tag } (card)}
       <div class="row">
         <span class="card" title={card}>{card}</span>
-        <span class="tag">sets the clock</span>
+        <span class="tag">{tag}</span>
         <button class="cmd" disabled={busy} title="Remove linuxmeeter's rule; restarts PipeWire and linuxmeeter" onclick={() => follow(card)}>
           UNDO
         </button>

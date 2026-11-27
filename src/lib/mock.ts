@@ -5,7 +5,7 @@
  * design iteration feels like the real app.
  */
 import type { AppState, BusId, MeterFrame, StripState } from "./types";
-import type { Ipc, Target } from "./ipc";
+import type { ClockProblem, Ipc, Target } from "./ipc";
 import { powerSum } from "./utils/db";
 import { BUS_IDS, isHardwareBus } from "./types";
 
@@ -108,8 +108,16 @@ let mockChannel: "stable" | "edge" = "stable";
 const updateSubs = new Set<(text: string) => void>();
 let mockRemoteOn = false;
 let mockLeaders: string[] = [];
-let mockClockProblems = [
-  { card: "usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00", description: "Razer BlackShark V2 Pro", nodes: [], errors: 2140 },
+let mockBuffered: string[] = [];
+let mockClockProblems: ClockProblem[] = [
+  {
+    card: "usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00",
+    description: "Razer BlackShark V2 Pro",
+    nodes: [],
+    errors: 2140,
+    follows: "Onboard Analog",
+    remedy: "lead",
+  },
 ];
 let mockRemoteKey = "3f9a1c0e5b7d2a4f8c6e1b3d5f7a9c2e";
 function mockRemote() {
@@ -369,14 +377,18 @@ export const mockIpc: Ipc = {
     updateSubs.add(cb);
     return () => updateSubs.delete(cb);
   },
-  getClock: () => Promise.resolve({ problems: [...mockClockProblems], leaders: [...mockLeaders], available: true }),
+  getClock: () =>
+    Promise.resolve({ problems: [...mockClockProblems], leaders: [...mockLeaders], buffered: [...mockBuffered], available: true }),
   dismissClock: (card) => {
     mockClockProblems = mockClockProblems.filter((p) => p.card !== card);
     return Promise.resolve();
   },
-  clockLead: (card, lead) => {
+  clockFix: (card, fix) => {
     mockClockProblems = mockClockProblems.filter((p) => p.card !== card);
-    mockLeaders = lead ? [...mockLeaders, card] : mockLeaders.filter((l) => l !== card);
+    mockLeaders = mockLeaders.filter((l) => l !== card);
+    mockBuffered = mockBuffered.filter((l) => l !== card);
+    if (fix === "lead") mockLeaders = [...mockLeaders, card];
+    if (fix === "buffer") mockBuffered = [...mockBuffered, card];
     return Promise.resolve();
   },
   onClockProblem: () => () => {},

@@ -273,6 +273,10 @@ bus uses that is a follower (`+`) and gained ≥ 20 errors is reported (banner, 
 `ctl clock`). The fix writes `~/.config/wireplumber/wireplumber.conf.d/60-linuxmeeter-clock.conf`
 (`priority.driver = 3000` for every node of that card, card = node name without
 `alsa_input./alsa_output.` and profile) and restarts WirePlumber, PipeWire and the app.
+If the driver the follower is listed under already leads (its card has our lead rule, or
+`pw-dump` shows `priority.driver` ≥ 3000), a second leader would only tie, so the
+remedy is `Fix::Buffer` instead: `api.alsa.period-size`/`headroom` = 1024 for that card
+(`# buffer:` entries in the same file, `ctl clock-buffer`).
 
 Volume keys (`volkeys.rs`): a profile's `volume_device` (an `alsa_output…` node name,
 `SetVolumeDevice`, `ctl volume-keys`) is what the keyboard volume keys / headset wheel

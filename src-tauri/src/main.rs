@@ -44,10 +44,10 @@ fn dismiss_clock(data: tauri::State<AppData>, card: String) {
     }
 }
 
-/// Let `card` set the clock (or stop it), then restart PipeWire and linuxmeeter.
+/// Give `card` a clock fix (or none), then restart PipeWire and linuxmeeter.
 #[tauri::command]
-fn clock_lead(app: tauri::AppHandle, card: String, lead: bool) -> Result<(), String> {
-    clock::set_leader(&card, lead)?;
+fn clock_fix(app: tauri::AppHandle, card: String, fix: Option<clock::Fix>) -> Result<(), String> {
+    clock::set_fix(&card, fix)?;
     clock::restart_audio_and_app(std::process::id())?;
     app.exit(0);
     Ok(())
@@ -383,7 +383,11 @@ fn set_limiter_params(
 }
 
 #[tauri::command]
-fn set_bus_eq_params(data: tauri::State<AppData>, bus: BusId, params: EqParams) -> Result<(), String> {
+fn set_bus_eq_params(
+    data: tauri::State<AppData>,
+    bus: BusId,
+    params: EqParams,
+) -> Result<(), String> {
     send(&data, EngineCommand::SetBusEqParams { bus, params })
 }
 
@@ -613,7 +617,14 @@ impl Ctl {
                     out += " none";
                 }
                 for p in &info.problems {
-                    out += &format!("\n  {}  {} ({} errors)", p.card, p.description, p.errors);
+                    let fix = match p.remedy {
+                        clock::Fix::Lead => "clock-lead",
+                        clock::Fix::Buffer => "clock-buffer",
+                    };
+                    out += &format!(
+                        "\n  {}  {} ({} errors; fix: {fix})",
+                        p.card, p.description, p.errors
+                    );
                 }
                 out += "\nsets the clock (linuxmeeter rule):";
                 if info.leaders.is_empty() {
@@ -622,13 +633,20 @@ impl Ctl {
                 for l in &info.leaders {
                     out += &format!("\n  {l}");
                 }
+                out += "\nfollows with a larger buffer (linuxmeeter rule):";
+                if info.buffered.is_empty() {
+                    out += " none";
+                }
+                for l in &info.buffered {
+                    out += &format!("\n  {l}");
+                }
                 if !info.available {
                     out += "\n(pw-top not found: detection is off)";
                 }
                 format!("ok: {out}")
             }
-            Ok(control::Action::ClockLead(card, lead)) => {
-                if let Err(e) = clock::set_leader(&card, lead) {
+            Ok(control::Action::ClockFix(card, fix)) => {
+                if let Err(e) = clock::set_fix(&card, fix) {
                     return format!("error: {e}");
                 }
                 match clock::restart_audio_and_app(std::process::id()) {
@@ -641,10 +659,10 @@ impl Ctl {
                         });
                         format!(
                             "ok: {card} {}; restarting PipeWire and linuxmeeter",
-                            if lead {
-                                "sets the clock"
-                            } else {
-                                "follows again"
+                            match fix {
+                                Some(clock::Fix::Lead) => "sets the clock",
+                                Some(clock::Fix::Buffer) => "follows with a larger buffer",
+                                None => "has no linuxmeeter rule any more",
                             }
                         )
                     }
@@ -1010,7 +1028,7 @@ fn main() {
             set_remote,
             get_clock,
             dismiss_clock,
-            clock_lead,
+            clock_fix,
             new_remote_key,
             get_remote,
             install_update,

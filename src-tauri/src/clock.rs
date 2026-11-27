@@ -7,10 +7,16 @@
 //! all) cannot follow cleanly; their error counter in `pw-top` climbs by
 //! hundreds a second and they sound like a robot.
 //!
-//! Detection reads `pw-top -b` every few seconds. The fix is a WirePlumber
-//! rule giving every node of that sound card a high `priority.driver`, in a
-//! file linuxmeeter owns:
-//! `~/.config/wireplumber/wireplumber.conf.d/60-linuxmeeter-clock.conf`.
+//! Detection reads `pw-top -b` every few seconds. There are two fixes, both a
+//! WirePlumber rule in a file linuxmeeter owns
+//! (`~/.config/wireplumber/wireplumber.conf.d/60-linuxmeeter-clock.conf`):
+//!
+//! - **lead**: every node of that sound card gets a high `priority.driver`, so
+//!   it sets the clock instead of following;
+//! - **buffer**: when the device it follows already sets the clock on purpose
+//!   (priority ≥ `LEADER_PRIORITY` — a second leader would only tie with it and
+//!   one of the two would drop out again), the follower gets a larger ALSA
+//!   period and headroom instead, which lets it follow cleanly.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -18,7 +24,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use lm_protocol::AppState;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// How often pw-top is sampled.
 const INTERVAL: Duration = Duration::from_secs(10);
@@ -26,6 +32,18 @@ const INTERVAL: Duration = Duration::from_secs(10);
 /// prompted this made hundreds a second).
 const THRESHOLD: u64 = 20;
 const LEADER_PRIORITY: u32 = 3000;
+/// ALSA period size and headroom (frames) for the buffer fix.
+const BUFFER_FRAMES: u32 = 1024;
+
+/// What the rule file does for a card.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Fix {
+    /// It sets the clock.
+    Lead,
+    /// It follows, with a larger buffer.
+    Buffer,
+}
 
 /// One node's line in `pw-top -b`.
 #[derive(Debug, Clone, PartialEq)]
@@ -34,11 +52,14 @@ pub struct NodeStat {
     pub errors: u64,
     /// Listed under another node ("+"): it follows that driver's clock.
     pub follower: bool,
+    /// The driver it is listed under (followers only).
+    pub driver: Option<String>,
 }
 
 /// The nodes of the last complete block of `pw-top -b -n N` output.
 pub fn parse_pw_top(text: &str) -> Vec<NodeStat> {
     let mut blocks: Vec<Vec<NodeStat>> = Vec::new();
+    let mut driver: Option<String> = None;
     for line in text.lines() {
         let t: Vec<&str> = line.split_whitespace().collect();
         if t.first() == Some(&"S") && t.get(1) == Some(&"ID") {
@@ -56,11 +77,16 @@ pub fn parse_pw_top(text: &str) -> Vec<NodeStat> {
             continue;
         };
         let name = t[t.len() - 1].to_string();
-        let follower = t[t.len() - 2] == "+";
+        let mark = t[t.len() - 2];
+        let follower = mark == "+";
+        if mark != "+" && mark != "=" {
+            driver = Some(name.clone());
+        }
         block.push(NodeStat {
             name,
             errors,
             follower,
+            driver: if follower { driver.clone() } else { None },
         });
     }
     // The first block of a batch run only lists nodes; the last one has numbers.
@@ -87,6 +113,11 @@ pub struct Problem {
     pub nodes: Vec<String>,
     /// Errors in the last interval.
     pub errors: u64,
+    /// The device it follows (human name), if known.
+    pub follows: Option<String>,
+    /// The fix to offer: `Buffer` when what it follows sets the clock on
+    /// purpose, else `Lead`.
+    pub remedy: Fix,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -95,6 +126,8 @@ pub struct ClockInfo {
     pub problems: Vec<Problem>,
     /// Cards that set the clock by linuxmeeter's rule.
     pub leaders: Vec<String>,
+    /// Cards that follow with a larger buffer by linuxmeeter's rule.
+    pub buffered: Vec<String>,
     /// pw-top is there (without it nothing is detected).
     pub available: bool,
 }
@@ -132,7 +165,18 @@ impl Clock {
                     let Some(app) = state.read().expect("state lock").clone() else {
                         continue;
                     };
-                    let found = detect(&stats, &last, &app, &leaders());
+                    let fixed = entries();
+                    let leaders: Vec<String> = fixed
+                        .iter()
+                        .filter(|(_, f)| *f == Fix::Lead)
+                        .map(|(c, _)| c.clone())
+                        .collect();
+                    let cards: Vec<String> = fixed.into_iter().map(|(c, _)| c).collect();
+                    let driver_leads = |driver: &str| {
+                        card_of(driver).is_some_and(|c| leaders.iter().any(|l| l == c))
+                            || driver_priority(driver).is_some_and(|p| p >= LEADER_PRIORITY as i64)
+                    };
+                    let found = detect(&stats, &last, &app, &cards, &driver_leads);
                     last = stats.iter().map(|s| (s.name.clone(), s.errors)).collect();
                     let dismissed = watcher.dismissed.lock().expect("lock").clone();
                     let mut problems = watcher.problems.lock().expect("lock");
@@ -159,6 +203,7 @@ impl Clock {
         ClockInfo {
             problems: self.problems.lock().expect("lock").clone(),
             leaders: leaders(),
+            buffered: buffered(),
             available: *self.available.lock().expect("lock"),
         }
     }
@@ -176,6 +221,19 @@ impl Clock {
     }
 }
 
+/// `priority.driver` of a node, from `pw-dump` (only asked when a problem
+/// is found).
+fn driver_priority(node_name: &str) -> Option<i64> {
+    let out = std::process::Command::new("pw-dump").output().ok()?;
+    let objects: Vec<serde_json::Value> = serde_json::from_slice(&out.stdout).ok()?;
+    objects
+        .iter()
+        .filter_map(|o| o.get("info")?.get("props"))
+        .find(|p| p.get("node.name").and_then(|n| n.as_str()) == Some(node_name))
+        .and_then(|p| p.get("priority.driver"))
+        .and_then(|v| v.as_i64())
+}
+
 fn run_pw_top() -> Option<String> {
     let out = std::process::Command::new("pw-top")
         .args(["-b", "-n", "2"])
@@ -187,12 +245,15 @@ fn run_pw_top() -> Option<String> {
 }
 
 /// Devices linuxmeeter uses (strip inputs, bus outputs) that follow another
-/// clock and gained at least THRESHOLD errors since the last sample.
+/// clock and gained at least THRESHOLD errors since the last sample. Cards in
+/// `fixed` already have a rule. `driver_leads(node)` says whether a driver
+/// sets the clock on purpose (then the remedy is a buffer, not a second leader).
 fn detect(
     stats: &[NodeStat],
     last: &HashMap<String, u64>,
     app: &AppState,
-    leaders: &[String],
+    fixed: &[String],
+    driver_leads: &dyn Fn(&str) -> bool,
 ) -> Vec<Problem> {
     let used: BTreeSet<&str> = app
         .strips
@@ -215,26 +276,34 @@ fn detect(
         let Some(card) = card_of(&s.name) else {
             continue;
         };
-        if leaders.iter().any(|l| l == card) || out.iter().any(|p| p.card == card) {
+        if fixed.iter().any(|l| l == card) || out.iter().any(|p| p.card == card) {
             continue;
         }
+        let describe = |n: &str| {
+            app.devices
+                .iter()
+                .find(|d| d.node_name == n)
+                .map(|d| d.description.clone())
+                .unwrap_or_else(|| n.to_string())
+        };
+        let follows = s.driver.as_deref().map(describe);
+        let remedy = match s.driver.as_deref() {
+            Some(d) if driver_leads(d) => Fix::Buffer,
+            _ => Fix::Lead,
+        };
         let nodes: Vec<String> = app
             .devices
             .iter()
             .map(|d| d.node_name.clone())
             .filter(|n| card_of(n) == Some(card))
             .collect();
-        let description = app
-            .devices
-            .iter()
-            .find(|d| d.node_name == s.name)
-            .map(|d| d.description.clone())
-            .unwrap_or_else(|| s.name.clone());
         out.push(Problem {
             card: card.to_string(),
-            description,
+            description: describe(&s.name),
             nodes,
             errors: new,
+            follows,
+            remedy,
         });
     }
     out
@@ -251,26 +320,56 @@ fn rule_path() -> PathBuf {
         .join("wireplumber/wireplumber.conf.d/60-linuxmeeter-clock.conf")
 }
 
-/// Cards in linuxmeeter's rule file.
-pub fn leaders() -> Vec<String> {
+/// Cards in linuxmeeter's rule file and what it does for each
+/// (`# card:` = lead, `# buffer:` = larger buffer).
+pub fn entries() -> Vec<(String, Fix)> {
     let text = std::fs::read_to_string(rule_path()).unwrap_or_default();
     text.lines()
-        .filter_map(|l| l.trim().strip_prefix("# card: "))
-        .map(|c| c.trim().to_string())
+        .filter_map(|l| {
+            let l = l.trim();
+            if let Some(c) = l.strip_prefix("# card: ") {
+                Some((c.trim().to_string(), Fix::Lead))
+            } else {
+                l.strip_prefix("# buffer: ")
+                    .map(|c| (c.trim().to_string(), Fix::Buffer))
+            }
+        })
         .collect()
 }
 
-/// The rule file for `cards`: every node of each card drives the clock.
-pub fn rule_text(cards: &[String]) -> String {
+/// Cards that set the clock by linuxmeeter's rule.
+pub fn leaders() -> Vec<String> {
+    entries()
+        .into_iter()
+        .filter(|(_, f)| *f == Fix::Lead)
+        .map(|(c, _)| c)
+        .collect()
+}
+
+/// Cards that follow with a larger buffer by linuxmeeter's rule.
+pub fn buffered() -> Vec<String> {
+    entries()
+        .into_iter()
+        .filter(|(_, f)| *f == Fix::Buffer)
+        .map(|(c, _)| c)
+        .collect()
+}
+
+/// The rule file for `entries`.
+pub fn rule_text(entries: &[(String, Fix)]) -> String {
     let mut s = String::from(
-        "# Written by linuxmeeter (Settings → Clock). These sound cards set the\n\
-         # clock instead of following another device's; edit in linuxmeeter.\n",
+        "# Written by linuxmeeter (Settings → Clock): sound cards that set the\n\
+         # clock (card) or follow with a larger buffer (buffer); edit in linuxmeeter.\n",
     );
-    for c in cards {
-        s += &format!("# card: {c}\n");
+    for (c, f) in entries {
+        let tag = match f {
+            Fix::Lead => "card",
+            Fix::Buffer => "buffer",
+        };
+        s += &format!("# {tag}: {c}\n");
     }
     s += "monitor.alsa.rules = [\n";
-    for c in cards {
+    for (c, f) in entries {
         // Same shape as the hand-written rule that fixed the headset this
         // was built for: "~alsa_.*<card>.*". Characters with a meaning in a
         // regex become "." (any character), so no escaping is needed.
@@ -284,23 +383,32 @@ pub fn rule_text(cards: &[String]) -> String {
                 }
             })
             .collect();
+        let props = match f {
+            Fix::Lead => format!(
+                "        priority.driver = {LEADER_PRIORITY}\n        session.suspend-timeout-seconds = 0\n"
+            ),
+            Fix::Buffer => format!(
+                "        api.alsa.period-size = {BUFFER_FRAMES}\n        api.alsa.headroom = {BUFFER_FRAMES}\n"
+            ),
+        };
         s += &format!(
-            "  {{\n    matches = [ {{ node.name = \"~alsa_.*{pattern}.*\" }} ]\n    actions = {{\n      update-props = {{\n        priority.driver = {LEADER_PRIORITY}\n        session.suspend-timeout-seconds = 0\n      }}\n    }}\n  }}\n"
+            "  {{\n    matches = [ {{ node.name = \"~alsa_.*{pattern}.*\" }} ]\n    actions = {{\n      update-props = {{\n{props}      }}\n    }}\n  }}\n"
         );
     }
     s += "]\n";
     s
 }
 
-/// Add or remove a card in the rule file (removing the file when empty).
-pub fn set_leader(card: &str, lead: bool) -> Result<(), String> {
-    let mut cards = leaders();
-    cards.retain(|c| c != card);
-    if lead {
-        cards.push(card.to_string());
+/// Set (Some) or remove (None) the rule for a card, removing the file when
+/// no card is left.
+pub fn set_fix(card: &str, fix: Option<Fix>) -> Result<(), String> {
+    let mut list = entries();
+    list.retain(|(c, _)| c != card);
+    if let Some(f) = fix {
+        list.push((card.to_string(), f));
     }
     let path = rule_path();
-    if cards.is_empty() {
+    if list.is_empty() {
         return match std::fs::remove_file(&path) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
             _ => Ok(()),
@@ -309,7 +417,7 @@ pub fn set_leader(card: &str, lead: bool) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    std::fs::write(&path, rule_text(&cards))
+    std::fs::write(&path, rule_text(&list))
         .map_err(|e| format!("could not write {}: {e}", path.display()))
 }
 
@@ -334,7 +442,9 @@ pub fn restart_audio_and_app(pid: u32) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lm_protocol::{BusId, BusState, DeviceInfo, EqParams, LimiterParams, StripKind, StripState};
+    use lm_protocol::{
+        BusId, BusState, DeviceInfo, EqParams, LimiterParams, StripKind, StripState,
+    };
 
     /// The user's own pw-top output (trimmed): the headset follows nothing,
     /// the onboard card follows it.
@@ -453,23 +563,44 @@ S   53      0      0    ---     ---   ---   ---     0                  bluez_mid
             ("alsa_output.pci-0000_2d_00.4.analog-stereo".to_string(), 10),
         ]
         .into();
-        let found = detect(&stats, &last, &app(), &[]);
+        let found = detect(&stats, &last, &app(), &[], &|_| false);
         assert_eq!(found.len(), 1, "{found:?}");
         let p = &found[0];
         assert_eq!(p.card, "usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00");
         assert_eq!(p.description, "Razer BlackShark V2 Pro");
         assert_eq!(p.errors, 510);
         assert_eq!(p.nodes.len(), 2, "input and output of the headset");
+        assert_eq!(p.remedy, Fix::Lead);
+        assert_eq!(
+            p.follows.as_deref(),
+            Some("Razer BlackShark V2 Pro"),
+            "listed under the headset output"
+        );
         // The onboard card gained 2 errors: under the threshold.
         // Already a leader: not reported again.
-        assert!(detect(&stats, &last, &app(), std::slice::from_ref(&p.card)).is_empty());
+        assert!(detect(
+            &stats,
+            &last,
+            &app(),
+            std::slice::from_ref(&p.card),
+            &|_| false
+        )
+        .is_empty());
         // No earlier sample: nothing to compare.
-        assert!(detect(&stats, &HashMap::new(), &app(), &[]).is_empty());
+        assert!(detect(&stats, &HashMap::new(), &app(), &[], &|_| false).is_empty());
+        // What it follows sets the clock on purpose: a buffer, not a tie.
+        let found = detect(&stats, &last, &app(), &[], &|d| {
+            d.starts_with("alsa_output.usb-1532")
+        });
+        assert_eq!(found[0].remedy, Fix::Buffer);
     }
 
     #[test]
     fn rule_matches_every_node_of_the_card() {
-        let text = rule_text(&["usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00".into()]);
+        let text = rule_text(&[(
+            "usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00".into(),
+            Fix::Lead,
+        )]);
         assert!(text.contains("# card: usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00"));
         assert!(
             text.contains(
@@ -478,5 +609,43 @@ S   53      0      0    ---     ---   ---   ---     0                  bluez_mid
             "{text}"
         );
         assert!(text.contains("priority.driver = 3000"));
+    }
+
+    /// The user's case: the wireless lavalier follows the headset mic, which
+    /// leads by rule. The buffer rule touches only the lavalier.
+    #[test]
+    fn buffer_rule_sets_period_and_headroom_only() {
+        let lav = "usb-Shenzhen_jiayz_photo_industrial_Ltd_BY-V10_433037373930332E-01";
+        let text = rule_text(&[
+            (
+                "usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00".into(),
+                Fix::Lead,
+            ),
+            (lav.into(), Fix::Buffer),
+        ]);
+        assert!(text.contains(&format!("# buffer: {lav}")));
+        let lav_rule = &text[text.find(&format!("~alsa_.*{lav}")).unwrap()..];
+        assert!(lav_rule.contains("api.alsa.period-size = 1024"));
+        assert!(lav_rule.contains("api.alsa.headroom = 1024"));
+        assert!(!lav_rule.contains("priority.driver"), "{text}");
+    }
+
+    #[test]
+    fn followers_know_their_driver() {
+        let s = parse_pw_top(SAMPLE);
+        let pci = s
+            .iter()
+            .find(|x| x.name == "alsa_output.pci-0000_2d_00.4.analog-stereo")
+            .unwrap();
+        assert_eq!(
+            pci.driver.as_deref(),
+            Some("alsa_output.usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.analog-stereo")
+        );
+        assert!(s
+            .iter()
+            .find(|x| x.name == "lm.meter.s2")
+            .unwrap()
+            .driver
+            .is_none());
     }
 }
