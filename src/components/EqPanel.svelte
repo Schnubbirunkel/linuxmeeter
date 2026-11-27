@@ -14,7 +14,7 @@
   let cur = $derived((strip ?? bus)!.eq);
   let label = $derived(strip ? strip.label : `${bus!.id} ${bus!.label}`);
   function setEq(eq: EqParams) {
-    if (strip) setEq(eq);
+    if (strip) mixer.setEqParams(strip.id, eq);
     else if (bus) mixer.setBusEqParams(bus.id, eq);
   }
 

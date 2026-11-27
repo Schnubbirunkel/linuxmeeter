@@ -68,6 +68,8 @@ from source (below).
   has its own EQ to correct how that device sounds to you; the virtual
   microphones (what OBS or Discord get) are not affected
 
+  ![Output EQ](docs/screenshot-output-eq.png)
+
   ![EQ panel](docs/screenshot-eq.png)
 
 - **See what the dynamics do** — a gain-reduction bar under every bus limiter;
