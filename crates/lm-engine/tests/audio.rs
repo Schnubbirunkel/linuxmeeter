@@ -350,6 +350,7 @@ fn strip(id: u32) -> StripState {
         gate: Default::default(),
         comp: Default::default(),
         eq: Default::default(),
+        stable_buffer: false,
     };
     s.gain_db = 0.0;
     s
