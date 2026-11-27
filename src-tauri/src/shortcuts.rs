@@ -33,7 +33,13 @@ const CTRL: i32 = 0x0400_0000;
 const ALT: i32 = 0x0800_0000;
 const META: i32 = 0x1000_0000;
 const KEYPAD: i32 = 0x2000_0000;
-const MODS: [(&str, i32); 5] = [("Meta", META), ("Ctrl", CTRL), ("Alt", ALT), ("Shift", SHIFT), ("Num", KEYPAD)];
+const MODS: [(&str, i32); 5] = [
+    ("Meta", META),
+    ("Ctrl", CTRL),
+    ("Alt", ALT),
+    ("Shift", SHIFT),
+    ("Num", KEYPAD),
+];
 
 /// Named (non-character) keys, by the names the settings panel produces.
 const NAMED: &[(&str, i32)] = &[
@@ -91,7 +97,11 @@ pub fn parse_keys(text: &str) -> Option<i32> {
     }
     let base = if let Some((_, c)) = NAMED.iter().find(|(n, _)| n.eq_ignore_ascii_case(key)) {
         *c
-    } else if let Some(n) = key.strip_prefix(['F', 'f']).and_then(|n| n.parse::<i32>().ok()).filter(|n| (1..=35).contains(n)) {
+    } else if let Some(n) = key
+        .strip_prefix(['F', 'f'])
+        .and_then(|n| n.parse::<i32>().ok())
+        .filter(|n| (1..=35).contains(n))
+    {
         0x0100_0030 + n - 1
     } else if key.len() == 1 && key.chars().all(|c| c.is_ascii_alphanumeric()) {
         key.to_ascii_uppercase().as_bytes()[0] as i32
@@ -108,12 +118,18 @@ pub fn format_keys(code: i32) -> Option<String> {
         n.to_string()
     } else if (0x0100_0030..0x0100_0030 + 35).contains(&base) {
         format!("F{}", base - 0x0100_0030 + 1)
-    } else if (b'0' as i32..=b'9' as i32).contains(&base) || (b'A' as i32..=b'Z' as i32).contains(&base) {
+    } else if (b'0' as i32..=b'9' as i32).contains(&base)
+        || (b'A' as i32..=b'Z' as i32).contains(&base)
+    {
         (base as u8 as char).to_string()
     } else {
         return None;
     };
-    let mut out: Vec<String> = MODS.iter().filter(|(_, bit)| code & bit != 0).map(|(n, _)| n.to_string()).collect();
+    let mut out: Vec<String> = MODS
+        .iter()
+        .filter(|(_, bit)| code & bit != 0)
+        .map(|(n, _)| n.to_string())
+        .collect();
     out.push(name);
     Some(out.join("+"))
 }
@@ -122,7 +138,12 @@ pub fn format_keys(code: i32) -> Option<String> {
 
 /// A shortcut's action id: [component, action, component name, action name].
 fn action_id(action: &str) -> Vec<String> {
-    vec![COMPONENT.into(), action.into(), "linuxmeeter".into(), describe(action)]
+    vec![
+        COMPONENT.into(),
+        action.into(),
+        "linuxmeeter".into(),
+        describe(action),
+    ]
 }
 
 /// The name System Settings shows: "Volume up strip:3", "Mute all microphones".
@@ -156,21 +177,35 @@ impl Shortcuts {
     /// Connect to KDE's shortcut service, register the saved bindings, and
     /// call `on_press(action)` for every key press. Without the service (not
     /// KDE) everything is a no-op and `available()` is false.
-    pub fn start(on_press: impl Fn(&str) + Send + 'static, on_changed: impl Fn() + Send + 'static) -> Arc<Self> {
+    pub fn start(
+        on_press: impl Fn(&str) + Send + 'static,
+        on_changed: impl Fn() + Send + 'static,
+    ) -> Arc<Self> {
         let conn = Connection::session().ok().filter(|c| {
             let has = |method: &str| -> bool {
-                c.call_method(Some("org.freedesktop.DBus"), "/org/freedesktop/DBus", Some("org.freedesktop.DBus"), method, &())
-                    .ok()
-                    .and_then(|m| m.body().deserialize::<Vec<String>>().ok())
-                    .is_some_and(|names| names.iter().any(|n| n == SERVICE))
+                c.call_method(
+                    Some("org.freedesktop.DBus"),
+                    "/org/freedesktop/DBus",
+                    Some("org.freedesktop.DBus"),
+                    method,
+                    &(),
+                )
+                .ok()
+                .and_then(|m| m.body().deserialize::<Vec<String>>().ok())
+                .is_some_and(|names| names.iter().any(|n| n == SERVICE))
             };
             has("ListNames") || has("ListActivatableNames")
         });
         if conn.is_none() {
             tracing::info!("KDE global shortcut service not found; in-app shortcuts disabled");
         }
-        let me = Arc::new(Self { conn, registered: Mutex::new(BTreeMap::new()) });
-        let Some(conn) = me.conn.clone() else { return me };
+        let me = Arc::new(Self {
+            conn,
+            registered: Mutex::new(BTreeMap::new()),
+        });
+        let Some(conn) = me.conn.clone() else {
+            return me;
+        };
 
         for (action, keys) in crate::settings::get().shortcuts {
             if let Err(e) = me.bind(&action, Some(&keys)) {
@@ -189,9 +224,13 @@ impl Shortcuts {
                     .and_then(|b| b.member("globalShortcutPressed"))
                     .map(|b| b.build());
                 let Ok(rule) = rule else { return };
-                let Ok(iter) = MessageIterator::for_match_rule(rule, &press_conn, None) else { return };
+                let Ok(iter) = MessageIterator::for_match_rule(rule, &press_conn, None) else {
+                    return;
+                };
                 for msg in iter.flatten() {
-                    if let Ok((component, action, _ts)) = msg.body().deserialize::<(String, String, i64)>() {
+                    if let Ok((component, action, _ts)) =
+                        msg.body().deserialize::<(String, String, i64)>()
+                    {
                         if component == COMPONENT {
                             on_press(&action);
                         }
@@ -210,13 +249,22 @@ impl Shortcuts {
                     .and_then(|b| b.member("yourShortcutsChanged"))
                     .map(|b| b.build());
                 let Ok(rule) = rule else { return };
-                let Ok(iter) = MessageIterator::for_match_rule(rule, &conn, None) else { return };
+                let Ok(iter) = MessageIterator::for_match_rule(rule, &conn, None) else {
+                    return;
+                };
                 for msg in iter.flatten() {
-                    let Ok((id, keys)) = msg.body().deserialize::<(Vec<String>, Vec<(Vec<i32>,)>)>() else { continue };
+                    let Ok((id, keys)) =
+                        msg.body().deserialize::<(Vec<String>, Vec<(Vec<i32>,)>)>()
+                    else {
+                        continue;
+                    };
                     if id.first().map(String::as_str) != Some(COMPONENT) || id.len() < 2 {
                         continue;
                     }
-                    let first = keys.iter().filter_map(|(k,)| k.first().copied()).find(|k| *k != 0);
+                    let first = keys
+                        .iter()
+                        .filter_map(|(k,)| k.first().copied())
+                        .find(|k| *k != 0);
                     let text = first.and_then(format_keys);
                     let _ = crate::settings::update(|s| match &text {
                         Some(t) => {
@@ -241,27 +289,45 @@ impl Shortcuts {
     where
         B: serde::Serialize + zbus::zvariant::DynamicType,
     {
-        let conn = self.conn.as_ref().ok_or("KDE's global shortcut service is not running")?;
-        conn.call_method(Some(SERVICE), PATH, Some(IFACE), method, body).map_err(|e| e.to_string())
+        let conn = self
+            .conn
+            .as_ref()
+            .ok_or("KDE's global shortcut service is not running")?;
+        conn.call_method(Some(SERVICE), PATH, Some(IFACE), method, body)
+            .map_err(|e| e.to_string())
     }
 
     /// Bind `keys` to `action` (None removes it). Returns the stored key text.
     fn bind(&self, action: &str, keys: Option<&str>) -> Result<Option<String>, String> {
         let id = action_id(action);
         let Some(keys) = keys else {
-            let _ = self.call("setShortcutKeys", &(id.clone(), Vec::<(Vec<i32>,)>::new(), SET_PRESENT | NO_AUTOLOADING));
+            let _ = self.call(
+                "setShortcutKeys",
+                &(
+                    id.clone(),
+                    Vec::<(Vec<i32>,)>::new(),
+                    SET_PRESENT | NO_AUTOLOADING,
+                ),
+            );
             let _ = self.call("unregister", &(COMPONENT, action));
             self.registered.lock().expect("lock").remove(action);
             return Ok(None);
         };
-        let code = parse_keys(keys).ok_or_else(|| format!("\"{keys}\" is not a key this app understands"))?;
+        let code = parse_keys(keys)
+            .ok_or_else(|| format!("\"{keys}\" is not a key this app understands"))?;
         self.call("doRegister", &(id.clone(),))?;
-        let reply = self.call("setShortcutKeys", &(id, vec![sequence(code)], SET_PRESENT | NO_AUTOLOADING))?;
+        let reply = self.call(
+            "setShortcutKeys",
+            &(id, vec![sequence(code)], SET_PRESENT | NO_AUTOLOADING),
+        )?;
         let got: Vec<(Vec<i32>,)> = reply.body().deserialize().map_err(|e| e.to_string())?;
         if !got.iter().any(|(k,)| k.first() == Some(&code)) {
             return Err(format!("{keys} is already used by another shortcut"));
         }
-        self.registered.lock().expect("lock").insert(action.into(), describe(action));
+        self.registered
+            .lock()
+            .expect("lock")
+            .insert(action.into(), describe(action));
         Ok(format_keys(code))
     }
 
@@ -308,7 +374,16 @@ mod tests {
 
     #[test]
     fn keys_round_trip() {
-        for k in ["Ctrl+Alt+M", "Meta+F9", "Shift+Up", "Volume Mute", "Ctrl+Num+Plus", "Alt+5", "Microphone Mute", "F12"] {
+        for k in [
+            "Ctrl+Alt+M",
+            "Meta+F9",
+            "Shift+Up",
+            "Volume Mute",
+            "Ctrl+Num+Plus",
+            "Alt+5",
+            "Microphone Mute",
+            "F12",
+        ] {
             let code = parse_keys(k).unwrap_or_else(|| panic!("{k}"));
             assert_eq!(format_keys(code).as_deref(), Some(k));
         }
@@ -318,7 +393,10 @@ mod tests {
     fn qt_codes_match_qt() {
         assert_eq!(parse_keys("Ctrl+M"), Some(0x0400_0000 | 0x4d));
         assert_eq!(parse_keys("F1"), Some(0x0100_0030));
-        assert_eq!(parse_keys("Meta+Shift+Down"), Some(0x1000_0000 | 0x0200_0000 | 0x0100_0015));
+        assert_eq!(
+            parse_keys("Meta+Shift+Down"),
+            Some(0x1000_0000 | 0x0200_0000 | 0x0100_0015)
+        );
         assert_eq!(parse_keys("ctrl+alt+m"), parse_keys("Ctrl+Alt+M"));
     }
 

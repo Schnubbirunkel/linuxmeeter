@@ -84,7 +84,11 @@ pub fn mic_mute_change(prev: &AppState, next: &AppState) -> Option<bool> {
         return None;
     }
     let (mut muted, mut live) = (0, 0);
-    for s in next.strips.iter().filter(|s| s.kind == lm_protocol::StripKind::Hardware) {
+    for s in next
+        .strips
+        .iter()
+        .filter(|s| s.kind == lm_protocol::StripKind::Hardware)
+    {
         match prev.strips.iter().find(|p| p.id == s.id) {
             Some(p) if !p.mute && s.mute => muted += 1,
             Some(p) if p.mute && !s.mute => live += 1,
@@ -101,7 +105,11 @@ pub fn mic_mute_change(prev: &AppState, next: &AppState) -> Option<bool> {
 
 /// True when there are hardware inputs and every one is muted.
 pub fn mics_muted(state: &AppState) -> bool {
-    let mut mics = state.strips.iter().filter(|s| s.kind == lm_protocol::StripKind::Hardware).peekable();
+    let mut mics = state
+        .strips
+        .iter()
+        .filter(|s| s.kind == lm_protocol::StripKind::Hardware)
+        .peekable();
     mics.peek().is_some() && mics.all(|s| s.mute)
 }
 
@@ -189,8 +197,16 @@ pub fn parse(args: &[String], state: &AppState) -> Result<Action, String> {
                 "toggle-mute-mics" => !mics_muted(state),
                 c => c == "mute-mics",
             };
-            let reply = if mute { "microphones muted" } else { "microphones live" };
-            engine(EngineCommand::SetMicsMute { mute }, Some(Notify::Mics), reply.into())
+            let reply = if mute {
+                "microphones muted"
+            } else {
+                "microphones live"
+            };
+            engine(
+                EngineCommand::SetMicsMute { mute },
+                Some(Notify::Mics),
+                reply.into(),
+            )
         }
         "volume-up" | "volume-down" => {
             let (target, label) = channel(0)?;
@@ -232,10 +248,21 @@ pub fn parse(args: &[String], state: &AppState) -> Result<Action, String> {
                 Some("virtual" | "virt") => StripKind::Virtual,
                 _ => return Err("`add-strip` needs hardware or virtual".into()),
             };
-            engine(EngineCommand::AddStrip { kind, hw_key: rest.get(1).cloned() }, None, "strip added".into())
+            engine(
+                EngineCommand::AddStrip {
+                    kind,
+                    hw_key: rest.get(1).cloned(),
+                },
+                None,
+                "strip added".into(),
+            )
         }
         "remove-strip" => match channel(0)? {
-            (Target::Strip { strip }, label) => engine(EngineCommand::RemoveStrip { strip }, None, format!("removed {label}")),
+            (Target::Strip { strip }, label) => engine(
+                EngineCommand::RemoveStrip { strip },
+                None,
+                format!("removed {label}"),
+            ),
             _ => Err("`remove-strip` needs a strip, not a bus".into()),
         },
         "add-bus" => {
@@ -247,7 +274,11 @@ pub fn parse(args: &[String], state: &AppState) -> Result<Action, String> {
             engine(EngineCommand::AddBus { hardware }, None, "bus added".into())
         }
         "remove-bus" => match channel(0)? {
-            (Target::Bus { bus }, label) => engine(EngineCommand::RemoveBus { bus }, None, format!("removed {label}")),
+            (Target::Bus { bus }, label) => engine(
+                EngineCommand::RemoveBus { bus },
+                None,
+                format!("removed {label}"),
+            ),
             _ => Err("`remove-bus` needs a bus, not a strip".into()),
         },
         "profile" => {
@@ -272,7 +303,9 @@ pub fn parse(args: &[String], state: &AppState) -> Result<Action, String> {
         "show" => Ok(Action::Show),
         "clock" => Ok(Action::Clock),
         "clock-lead" | "clock-follow" => {
-            let card = rest.first().ok_or("`clock-lead` needs a card (see `ctl clock`)")?;
+            let card = rest
+                .first()
+                .ok_or("`clock-lead` needs a card (see `ctl clock`)")?;
             Ok(Action::ClockLead(card.clone(), cmd == "clock-lead"))
         }
         "export" | "import" => {
@@ -280,7 +313,11 @@ pub fn parse(args: &[String], state: &AppState) -> Result<Action, String> {
             if path.is_empty() {
                 return Err(format!("`{cmd}` needs a file path"));
             }
-            Ok(if cmd == "export" { Action::Export(path) } else { Action::Import(path) })
+            Ok(if cmd == "export" {
+                Action::Export(path)
+            } else {
+                Action::Import(path)
+            })
         }
         "list" => Ok(Action::Reply(list(state))),
         "help" | "--help" | "-h" => Ok(Action::Reply(HELP.into())),
@@ -511,7 +548,11 @@ mod tests {
         let mut s = state();
         s.strips[0].kind = StripKind::Hardware;
         let toggled = |s: &AppState| match parse(&args(&["toggle-mute-mics"]), s).unwrap() {
-            Action::Engine { cmd: EngineCommand::SetMicsMute { mute }, notify, .. } => {
+            Action::Engine {
+                cmd: EngineCommand::SetMicsMute { mute },
+                notify,
+                ..
+            } => {
                 assert_eq!(notify, Some(Notify::Mics));
                 mute
             }
@@ -538,7 +579,11 @@ mod tests {
         assert_eq!(mic_mute_change(&a, &c), None);
         let mut d = b.clone();
         d.profile_name = "Gaming".into();
-        assert_eq!(mic_mute_change(&a, &d), None, "profile switches do not beep");
+        assert_eq!(
+            mic_mute_change(&a, &d),
+            None,
+            "profile switches do not beep"
+        );
     }
 
     #[test]

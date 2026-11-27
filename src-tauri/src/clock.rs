@@ -49,11 +49,19 @@ pub fn parse_pw_top(text: &str) -> Vec<NodeStat> {
         if t.len() < 10 {
             continue;
         }
-        let Some(block) = blocks.last_mut() else { continue };
-        let Ok(errors) = t[8].parse::<u64>() else { continue };
+        let Some(block) = blocks.last_mut() else {
+            continue;
+        };
+        let Ok(errors) = t[8].parse::<u64>() else {
+            continue;
+        };
         let name = t[t.len() - 1].to_string();
         let follower = t[t.len() - 2] == "+";
-        block.push(NodeStat { name, errors, follower });
+        block.push(NodeStat {
+            name,
+            errors,
+            follower,
+        });
     }
     // The first block of a batch run only lists nodes; the last one has numbers.
     blocks.pop().unwrap_or_default()
@@ -62,7 +70,9 @@ pub fn parse_pw_top(text: &str) -> Vec<NodeStat> {
 /// "alsa_input.usb-1532_Razer…-00.mono-fallback" -> "usb-1532_Razer…-00":
 /// the part every node of one sound card shares.
 pub fn card_of(node_name: &str) -> Option<&str> {
-    let rest = node_name.strip_prefix("alsa_input.").or_else(|| node_name.strip_prefix("alsa_output."))?;
+    let rest = node_name
+        .strip_prefix("alsa_input.")
+        .or_else(|| node_name.strip_prefix("alsa_output."))?;
     Some(rest.rsplit_once('.').map_or(rest, |(card, _profile)| card))
 }
 
@@ -119,16 +129,23 @@ impl Clock {
                         return;
                     };
                     let stats = parse_pw_top(&text);
-                    let Some(app) = state.read().expect("state lock").clone() else { continue };
+                    let Some(app) = state.read().expect("state lock").clone() else {
+                        continue;
+                    };
                     let found = detect(&stats, &last, &app, &leaders());
                     last = stats.iter().map(|s| (s.name.clone(), s.errors)).collect();
                     let dismissed = watcher.dismissed.lock().expect("lock").clone();
                     let mut problems = watcher.problems.lock().expect("lock");
                     for p in found {
-                        if dismissed.contains(&p.card) || problems.iter().any(|q| q.card == p.card) {
+                        if dismissed.contains(&p.card) || problems.iter().any(|q| q.card == p.card)
+                        {
                             continue;
                         }
-                        tracing::warn!("{} drops out following another clock ({} errors)", p.description, p.errors);
+                        tracing::warn!(
+                            "{} drops out following another clock ({} errors)",
+                            p.description,
+                            p.errors
+                        );
                         on_problem(&p);
                         problems.push(p);
                     }
@@ -148,19 +165,35 @@ impl Clock {
 
     /// Hide a problem for the rest of this session.
     pub fn dismiss(&self, card: &str) {
-        self.dismissed.lock().expect("lock").insert(card.to_string());
-        self.problems.lock().expect("lock").retain(|p| p.card != card);
+        self.dismissed
+            .lock()
+            .expect("lock")
+            .insert(card.to_string());
+        self.problems
+            .lock()
+            .expect("lock")
+            .retain(|p| p.card != card);
     }
 }
 
 fn run_pw_top() -> Option<String> {
-    let out = std::process::Command::new("pw-top").args(["-b", "-n", "2"]).output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+    let out = std::process::Command::new("pw-top")
+        .args(["-b", "-n", "2"])
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 /// Devices linuxmeeter uses (strip inputs, bus outputs) that follow another
 /// clock and gained at least THRESHOLD errors since the last sample.
-fn detect(stats: &[NodeStat], last: &HashMap<String, u64>, app: &AppState, leaders: &[String]) -> Vec<Problem> {
+fn detect(
+    stats: &[NodeStat],
+    last: &HashMap<String, u64>,
+    app: &AppState,
+    leaders: &[String],
+) -> Vec<Problem> {
     let used: BTreeSet<&str> = app
         .strips
         .iter()
@@ -172,12 +205,16 @@ fn detect(stats: &[NodeStat], last: &HashMap<String, u64>, app: &AppState, leade
         if !s.follower || !used.contains(s.name.as_str()) {
             continue;
         }
-        let Some(before) = last.get(&s.name) else { continue };
+        let Some(before) = last.get(&s.name) else {
+            continue;
+        };
         let new = s.errors.saturating_sub(*before);
         if new < THRESHOLD {
             continue;
         }
-        let Some(card) = card_of(&s.name) else { continue };
+        let Some(card) = card_of(&s.name) else {
+            continue;
+        };
         if leaders.iter().any(|l| l == card) || out.iter().any(|p| p.card == card) {
             continue;
         }
@@ -193,7 +230,12 @@ fn detect(stats: &[NodeStat], last: &HashMap<String, u64>, app: &AppState, leade
             .find(|d| d.node_name == s.name)
             .map(|d| d.description.clone())
             .unwrap_or_else(|| s.name.clone());
-        out.push(Problem { card: card.to_string(), description, nodes, errors: new });
+        out.push(Problem {
+            card: card.to_string(),
+            description,
+            nodes,
+            errors: new,
+        });
     }
     out
 }
@@ -203,7 +245,9 @@ fn detect(stats: &[NodeStat], last: &HashMap<String, u64>, app: &AppState, leade
 fn rule_path() -> PathBuf {
     std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".config"))
+        .unwrap_or_else(|| {
+            PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".config")
+        })
         .join("wireplumber/wireplumber.conf.d/60-linuxmeeter-clock.conf")
 }
 
@@ -232,7 +276,13 @@ pub fn rule_text(cards: &[String]) -> String {
         // regex become "." (any character), so no escaping is needed.
         let pattern: String = c
             .chars()
-            .map(|ch| if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' { ch } else { '.' })
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                    ch
+                } else {
+                    '.'
+                }
+            })
             .collect();
         s += &format!(
             "  {{\n    matches = [ {{ node.name = \"~alsa_.*{pattern}.*\" }} ]\n    actions = {{\n      update-props = {{\n        priority.driver = {LEADER_PRIORITY}\n        session.suspend-timeout-seconds = 0\n      }}\n    }}\n  }}\n"
@@ -259,7 +309,8 @@ pub fn set_leader(card: &str, lead: bool) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    std::fs::write(&path, rule_text(&cards)).map_err(|e| format!("could not write {}: {e}", path.display()))
+    std::fs::write(&path, rule_text(&cards))
+        .map_err(|e| format!("could not write {}: {e}", path.display()))
 }
 
 /// Restart WirePlumber + PipeWire (so the rule applies) and then linuxmeeter
@@ -305,20 +356,35 @@ S   53      0      0    ---     ---   ---   ---     0                  bluez_mid
     fn parses_the_last_block_with_followers() {
         let s = parse_pw_top(SAMPLE);
         let get = |n: &str| s.iter().find(|x| x.name == n).cloned().unwrap();
-        assert!(!get("alsa_output.usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.analog-stereo").follower);
+        assert!(
+            !get("alsa_output.usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.analog-stereo")
+                .follower
+        );
         let pci = get("alsa_output.pci-0000_2d_00.4.analog-stereo");
         assert!(pci.follower);
         assert_eq!(pci.errors, 12);
-        assert!(!get("lm.meter.s2").follower, "= is a passive link, not a follower");
-        assert_eq!(get("alsa_input.usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.mono-fallback").errors, 4510);
+        assert!(
+            !get("lm.meter.s2").follower,
+            "= is a passive link, not a follower"
+        );
+        assert_eq!(
+            get("alsa_input.usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.mono-fallback")
+                .errors,
+            4510
+        );
         assert_eq!(get("bluez_midi.server").errors, 0);
     }
 
     #[test]
     fn cards_group_input_and_output() {
-        let a = card_of("alsa_input.usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.mono-fallback");
-        let b = card_of("alsa_output.usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.analog-stereo");
-        assert_eq!(a, Some("usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00"));
+        let a =
+            card_of("alsa_input.usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.mono-fallback");
+        let b =
+            card_of("alsa_output.usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.analog-stereo");
+        assert_eq!(
+            a,
+            Some("usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00")
+        );
         assert_eq!(a, b);
         assert_eq!(card_of("bluez_output.AA_BB.1"), None);
         assert_eq!(card_of("lm.strip.2"), None);
@@ -329,7 +395,10 @@ S   53      0      0    ---     ---   ---   ---     0                  bluez_mid
             id: 1,
             kind: StripKind::Hardware,
             label: "Mic".into(),
-            hw_key: Some("alsa_input.usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.mono-fallback".into()),
+            hw_key: Some(
+                "alsa_input.usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.mono-fallback"
+                    .into(),
+            ),
             online: true,
             gain_db: 0.0,
             mute: false,
@@ -348,13 +417,25 @@ S   53      0      0    ---     ---   ---   ---     0                  bluez_mid
             mute: false,
             limiter: LimiterParams::default(),
         };
-        let dev = |n: &str, d: &str| DeviceInfo { node_name: n.into(), description: d.into(), media_class: "Audio/Source".into(), serial: 1, channels: 2 };
+        let dev = |n: &str, d: &str| DeviceInfo {
+            node_name: n.into(),
+            description: d.into(),
+            media_class: "Audio/Source".into(),
+            serial: 1,
+            channels: 2,
+        };
         AppState {
             strips: vec![strip],
             buses: vec![bus],
             devices: vec![
-                dev("alsa_input.usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.mono-fallback", "Razer BlackShark V2 Pro"),
-                dev("alsa_output.usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.analog-stereo", "Razer BlackShark V2 Pro"),
+                dev(
+                    "alsa_input.usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.mono-fallback",
+                    "Razer BlackShark V2 Pro",
+                ),
+                dev(
+                    "alsa_output.usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.analog-stereo",
+                    "Razer BlackShark V2 Pro",
+                ),
                 dev("alsa_output.pci-0000_2d_00.4.analog-stereo", "Onboard"),
             ],
             ..Default::default()
@@ -365,7 +446,11 @@ S   53      0      0    ---     ---   ---   ---     0                  bluez_mid
     fn a_used_follower_with_rising_errors_is_a_problem() {
         let stats = parse_pw_top(SAMPLE);
         let mic = "alsa_input.usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.mono-fallback";
-        let last: HashMap<String, u64> = [(mic.to_string(), 4000), ("alsa_output.pci-0000_2d_00.4.analog-stereo".to_string(), 10)].into();
+        let last: HashMap<String, u64> = [
+            (mic.to_string(), 4000),
+            ("alsa_output.pci-0000_2d_00.4.analog-stereo".to_string(), 10),
+        ]
+        .into();
         let found = detect(&stats, &last, &app(), &[]);
         assert_eq!(found.len(), 1, "{found:?}");
         let p = &found[0];
@@ -384,7 +469,12 @@ S   53      0      0    ---     ---   ---   ---     0                  bluez_mid
     fn rule_matches_every_node_of_the_card() {
         let text = rule_text(&["usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00".into()]);
         assert!(text.contains("# card: usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00"));
-        assert!(text.contains(r#"node.name = "~alsa_.*usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.*""#), "{text}");
+        assert!(
+            text.contains(
+                r#"node.name = "~alsa_.*usb-1532_Razer_BlackShark_V2_Pro_2.4_O001000007-00.*""#
+            ),
+            "{text}"
+        );
         assert!(text.contains("priority.driver = 3000"));
     }
 }

@@ -26,14 +26,18 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { last_profile: "Default".into() }
+        Self {
+            last_profile: "Default".into(),
+        }
     }
 }
 
 pub fn config_dir() -> PathBuf {
     std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").expect("HOME not set")).join(".config"))
+        .unwrap_or_else(|| {
+            PathBuf::from(std::env::var_os("HOME").expect("HOME not set")).join(".config")
+        })
         .join("linuxmeeter")
 }
 
@@ -41,7 +45,11 @@ pub fn load_config() -> Config {
     let path = config_dir().join("config.toml");
     fs::read_to_string(&path)
         .ok()
-        .and_then(|s| toml::from_str(&s).map_err(|e| tracing::warn!("bad config.toml: {e}")).ok())
+        .and_then(|s| {
+            toml::from_str(&s)
+                .map_err(|e| tracing::warn!("bad config.toml: {e}"))
+                .ok()
+        })
         .unwrap_or_default()
 }
 
@@ -135,7 +143,9 @@ fn atomic_write(path: &std::path::Path, contents: &str) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lm_protocol::{BusId, BusState, EqBand, EqBandKind, EqParams, GateParams, LimiterParams, StripState};
+    use lm_protocol::{
+        BusId, BusState, EqBand, EqBandKind, EqParams, GateParams, LimiterParams, StripState,
+    };
     use std::collections::BTreeMap;
 
     fn routes(on: &[BusId]) -> BTreeMap<BusId, bool> {
@@ -190,9 +200,15 @@ mod tests {
     /// recomputed against the live registry — never trusted from disk.
     #[test]
     fn sanitize_resets_hardware_online_but_trusts_virtual() {
-        let mut p = profile(vec![strip(1, StripKind::Hardware), strip(2, StripKind::Virtual)]);
+        let mut p = profile(vec![
+            strip(1, StripKind::Hardware),
+            strip(2, StripKind::Virtual),
+        ]);
         sanitize(&mut p);
-        assert!(!p.strips[0].online, "hardware strips start offline until seen");
+        assert!(
+            !p.strips[0].online,
+            "hardware strips start offline until seen"
+        );
         assert!(p.strips[1].online, "virtual strips always exist");
         assert!(p.buses[0].online);
     }
@@ -209,14 +225,23 @@ mod tests {
 
         let eq = &p.strips[0].eq;
         assert_eq!(eq.bands.len(), 4);
-        assert_eq!(eq.color, EqParams::color_defaults().to_vec(), "color bands must be the voice-tuned defaults");
+        assert_eq!(
+            eq.color,
+            EqParams::color_defaults().to_vec(),
+            "color bands must be the voice-tuned defaults"
+        );
     }
 
     #[test]
     fn sanitize_preserves_user_eq_bands_while_migrating() {
         let mut s = strip(1, StripKind::Virtual);
         s.eq.color.clear();
-        s.eq.bands[1] = EqBand { kind: EqBandKind::Peak, freq_hz: 900.0, gain_db: -4.5, q: 2.0 };
+        s.eq.bands[1] = EqBand {
+            kind: EqBandKind::Peak,
+            freq_hz: 900.0,
+            gain_db: -4.5,
+            q: 2.0,
+        };
         let mut p = profile(vec![s]);
         sanitize(&mut p);
         assert_eq!(p.strips[0].eq.bands[1].freq_hz, 900.0);
@@ -235,7 +260,10 @@ mod tests {
     /// full round trip with everything the mixer needs to rebuild itself.
     #[test]
     fn profile_survives_a_toml_round_trip() {
-        let mut p = profile(vec![strip(1, StripKind::Hardware), strip(2, StripKind::Virtual)]);
+        let mut p = profile(vec![
+            strip(1, StripKind::Hardware),
+            strip(2, StripKind::Virtual),
+        ]);
         p.take_default_output = true;
         p.strips[0].gain_db = -13.5;
         p.strips[0].routes.insert(BusId::B1, true);
@@ -250,7 +278,10 @@ mod tests {
         assert_eq!(back.strips[0].routes[&BusId::B1], true);
         assert_eq!(back.strips[0].gate.threshold_db, -33.0);
         assert_eq!(back.strips[0].hw_key.as_deref(), Some("alsa_input.usb-foo"));
-        assert_eq!(back.buses[0].target_hw_key.as_deref(), Some("alsa_output.hdmi"));
+        assert_eq!(
+            back.buses[0].target_hw_key.as_deref(),
+            Some("alsa_output.hdmi")
+        );
         assert_eq!(back.strips[1].kind, StripKind::Virtual);
     }
 
@@ -309,7 +340,11 @@ releaseMs = 50.0
         assert_eq!(back.strips[0].label, "System");
         assert_eq!(back.strips[0].gain_db, -6.0);
         sanitize(&mut back);
-        assert_eq!(back.strips[0].eq.bands.len(), 4, "defaults then migration give a full band set");
+        assert_eq!(
+            back.strips[0].eq.bands.len(),
+            4,
+            "defaults then migration give a full band set"
+        );
         assert_eq!(back.strips[0].eq.color.len(), 4);
     }
 

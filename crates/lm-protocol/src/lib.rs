@@ -18,7 +18,15 @@ pub enum BusId {
 
 impl BusId {
     /// Every bus a mixer can have; a profile uses any subset (`AppState.buses`).
-    pub const ALL: [BusId; 7] = [BusId::A1, BusId::A2, BusId::A3, BusId::A4, BusId::B1, BusId::B2, BusId::B3];
+    pub const ALL: [BusId; 7] = [
+        BusId::A1,
+        BusId::A2,
+        BusId::A3,
+        BusId::A4,
+        BusId::B1,
+        BusId::B2,
+        BusId::B3,
+    ];
 
     /// A buses play to a hardware device; B buses are virtual microphones.
     pub fn is_hardware(&self) -> bool {
@@ -54,7 +62,13 @@ pub struct GateParams {
 
 impl Default for GateParams {
     fn default() -> Self {
-        Self { enabled: false, threshold_db: -40.0, attack_ms: 20.0, release_ms: 100.0, hold_ms: 50.0 }
+        Self {
+            enabled: false,
+            threshold_db: -40.0,
+            attack_ms: 20.0,
+            release_ms: 100.0,
+            hold_ms: 50.0,
+        }
     }
 }
 
@@ -71,7 +85,14 @@ pub struct CompParams {
 
 impl Default for CompParams {
     fn default() -> Self {
-        Self { enabled: false, threshold_db: -18.0, ratio: 4.0, attack_ms: 20.0, release_ms: 100.0, makeup_db: 0.0 }
+        Self {
+            enabled: false,
+            threshold_db: -18.0,
+            ratio: 4.0,
+            attack_ms: 20.0,
+            release_ms: 100.0,
+            makeup_db: 0.0,
+        }
     }
 }
 
@@ -132,10 +153,30 @@ impl EqParams {
     /// the EQ panel's bands.
     pub fn color_defaults() -> [EqBand; 4] {
         [
-            EqBand { kind: EqBandKind::LowShelf, freq_hz: 300.0, gain_db: 0.0, q: 0.7 },
-            EqBand { kind: EqBandKind::Peak, freq_hz: 400.0, gain_db: 0.0, q: 0.8 },
-            EqBand { kind: EqBandKind::Peak, freq_hz: 3000.0, gain_db: 0.0, q: 0.8 },
-            EqBand { kind: EqBandKind::HighShelf, freq_hz: 3500.0, gain_db: 0.0, q: 0.7 },
+            EqBand {
+                kind: EqBandKind::LowShelf,
+                freq_hz: 300.0,
+                gain_db: 0.0,
+                q: 0.7,
+            },
+            EqBand {
+                kind: EqBandKind::Peak,
+                freq_hz: 400.0,
+                gain_db: 0.0,
+                q: 0.8,
+            },
+            EqBand {
+                kind: EqBandKind::Peak,
+                freq_hz: 3000.0,
+                gain_db: 0.0,
+                q: 0.8,
+            },
+            EqBand {
+                kind: EqBandKind::HighShelf,
+                freq_hz: 3500.0,
+                gain_db: 0.0,
+                q: 0.7,
+            },
         ]
     }
 }
@@ -143,10 +184,30 @@ impl EqParams {
 impl EqParams {
     pub fn panel_defaults() -> Vec<EqBand> {
         vec![
-            EqBand { kind: EqBandKind::LowShelf, freq_hz: 100.0, gain_db: 0.0, q: 0.7 },
-            EqBand { kind: EqBandKind::Peak, freq_hz: 400.0, gain_db: 0.0, q: 1.0 },
-            EqBand { kind: EqBandKind::Peak, freq_hz: 2500.0, gain_db: 0.0, q: 1.0 },
-            EqBand { kind: EqBandKind::HighShelf, freq_hz: 8000.0, gain_db: 0.0, q: 0.7 },
+            EqBand {
+                kind: EqBandKind::LowShelf,
+                freq_hz: 100.0,
+                gain_db: 0.0,
+                q: 0.7,
+            },
+            EqBand {
+                kind: EqBandKind::Peak,
+                freq_hz: 400.0,
+                gain_db: 0.0,
+                q: 1.0,
+            },
+            EqBand {
+                kind: EqBandKind::Peak,
+                freq_hz: 2500.0,
+                gain_db: 0.0,
+                q: 1.0,
+            },
+            EqBand {
+                kind: EqBandKind::HighShelf,
+                freq_hz: 8000.0,
+                gain_db: 0.0,
+                q: 0.7,
+            },
         ]
     }
 
@@ -181,7 +242,11 @@ impl EqParams {
 
 impl Default for EqParams {
     fn default() -> Self {
-        Self { enabled: false, bands: Self::panel_defaults(), color: Self::color_defaults().to_vec() }
+        Self {
+            enabled: false,
+            bands: Self::panel_defaults(),
+            color: Self::color_defaults().to_vec(),
+        }
     }
 }
 
@@ -195,7 +260,11 @@ pub struct LimiterParams {
 
 impl Default for LimiterParams {
     fn default() -> Self {
-        Self { enabled: true, threshold_db: -1.0, release_ms: 50.0 }
+        Self {
+            enabled: true,
+            threshold_db: -1.0,
+            release_ms: 50.0,
+        }
     }
 }
 
@@ -323,62 +392,129 @@ pub enum Target {
 /// Commands into the engine thread.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EngineCommand {
-    SetGain { target: Target, db: f32 },
-    SetMute { target: Target, mute: bool },
-    SetSolo { strip: StripId, solo: bool },
-    SetRoute { strip: StripId, bus: BusId, on: bool },
-    SetGateParams { strip: StripId, params: GateParams },
-    SetCompParams { strip: StripId, params: CompParams },
-    SetEqParams { strip: StripId, params: EqParams },
-    SetLimiterParams { bus: BusId, params: LimiterParams },
+    SetGain {
+        target: Target,
+        db: f32,
+    },
+    SetMute {
+        target: Target,
+        mute: bool,
+    },
+    SetSolo {
+        strip: StripId,
+        solo: bool,
+    },
+    SetRoute {
+        strip: StripId,
+        bus: BusId,
+        on: bool,
+    },
+    SetGateParams {
+        strip: StripId,
+        params: GateParams,
+    },
+    SetCompParams {
+        strip: StripId,
+        params: CompParams,
+    },
+    SetEqParams {
+        strip: StripId,
+        params: EqParams,
+    },
+    SetLimiterParams {
+        bus: BusId,
+        params: LimiterParams,
+    },
     /// Point a hardware strip at a different capture device (module reload).
-    SetStripDevice { strip: StripId, hw_key: String },
+    SetStripDevice {
+        strip: StripId,
+        hw_key: String,
+    },
     /// Point an A-bus at a different output device (module reload).
-    SetBusTarget { bus: BusId, hw_key: String },
+    SetBusTarget {
+        bus: BusId,
+        hw_key: String,
+    },
     /// Make the System strip the system-wide default output (VoiceMeeter
     /// style: all desktop audio flows through the mixer), or restore the
     /// previous hardware default.
-    SetDefaultOutput { on: bool },
+    SetDefaultOutput {
+        on: bool,
+    },
     /// Start/stop the 30 Hz meter drain. Every frame costs a script evaluation
     /// in the webview, so a mixer sitting in the tray stops paying for meters
     /// nobody can see. Audio is unaffected either way.
-    SetMetersEnabled { on: bool },
+    SetMetersEnabled {
+        on: bool,
+    },
     /// Rename a strip or bus. The label is also the `node.description` other
     /// programs see, so this reloads the module (node names stay identical).
-    Rename { target: Target, label: String },
+    Rename {
+        target: Target,
+        label: String,
+    },
     /// Move a fader by `step` of its travel (0.05 = 5 %), clamped. Unlike
     /// `SetGain` this emits a `State` event: it comes from outside the UI
     /// (global shortcuts), so the window has to be told.
-    NudgeGain { target: Target, step: f32 },
+    NudgeGain {
+        target: Target,
+        step: f32,
+    },
     /// Flip mute; emits `State`.
-    ToggleMute { target: Target },
+    ToggleMute {
+        target: Target,
+    },
     /// Save the current profile, then switch to `name` (created from the
     /// current mixer if it does not exist yet).
-    LoadProfile { name: String },
+    LoadProfile {
+        name: String,
+    },
     /// Copy the current mixer into a new profile `name` and switch to it.
-    SaveProfileAs { name: String },
+    SaveProfileAs {
+        name: String,
+    },
     /// Delete a saved profile (never the active one).
-    DeleteProfile { name: String },
+    DeleteProfile {
+        name: String,
+    },
     /// Switch to the next (`step` = 1) or previous (-1) profile, wrapping.
-    CycleProfile { step: i32 },
+    CycleProfile {
+        step: i32,
+    },
     /// Add an input strip. Hardware strips capture `hw_key` (default: the
     /// system default microphone, else the first unused input).
-    AddStrip { kind: StripKind, hw_key: Option<String> },
-    RemoveStrip { strip: StripId },
+    AddStrip {
+        kind: StripKind,
+        hw_key: Option<String>,
+    },
+    RemoveStrip {
+        strip: StripId,
+    },
     /// Add the first free A bus (`hardware`, plays to the default output
     /// device) or B bus (virtual microphone).
-    AddBus { hardware: bool },
-    RemoveBus { bus: BusId },
+    AddBus {
+        hardware: bool,
+    },
+    RemoveBus {
+        bus: BusId,
+    },
     /// Restore a backup: write each (profile name, TOML text), then switch to
     /// `active` without saving the running mixer over it first.
-    ImportProfiles { files: Vec<(String, String)>, active: String },
+    ImportProfiles {
+        files: Vec<(String, String)>,
+        active: String,
+    },
     /// Emit a `State` now (e.g. after gain changes from the phone remote,
     /// which the desktop window should follow).
     RequestState,
     /// Play the microphone warning tone: rising (mics live) or falling (muted).
-    Beep { rising: bool },
+    Beep {
+        rising: bool,
+    },
     /// Mute or unmute every hardware input strip at once; emits `State`.
-    SetMicsMute { mute: bool },
+    SetMicsMute {
+        mute: bool,
+    },
     Shutdown,
 }
 
@@ -511,7 +647,11 @@ mod tests {
     fn virtual_strip_controls_its_sink_node_directly() {
         let s = strip(3, StripKind::Virtual);
         assert_eq!(s.node_base(), "lm.strip.3");
-        assert_eq!(s.control_node(), "lm.strip.3", "the sink node carries Props");
+        assert_eq!(
+            s.control_node(),
+            "lm.strip.3",
+            "the sink node carries Props"
+        );
         assert_eq!(s.out_node(), "lm.strip.3.out");
     }
 
@@ -534,7 +674,10 @@ mod tests {
     /// world sees, so that is where the post-limiter signal is tapped.
     #[test]
     fn bus_tap_point_depends_on_bus_kind() {
-        assert_eq!(bus(BusId::A1, Some("alsa_output.hdmi")).tap_node(), "lm.bus.a1.out");
+        assert_eq!(
+            bus(BusId::A1, Some("alsa_output.hdmi")).tap_node(),
+            "lm.bus.a1.out"
+        );
         assert_eq!(bus(BusId::B1, None).tap_node(), "lm.bus.b1");
         assert_eq!(bus(BusId::A1, Some("x")).in_node(), "lm.bus.a1.in");
     }
@@ -553,8 +696,14 @@ mod tests {
     /// If this drifts, every command silently fails to deserialize.
     #[test]
     fn target_serializes_untagged() {
-        assert_eq!(serde_json::to_string(&Target::Strip { strip: 3 }).unwrap(), r#"{"strip":3}"#);
-        assert_eq!(serde_json::to_string(&Target::Bus { bus: BusId::A1 }).unwrap(), r#"{"bus":"A1"}"#);
+        assert_eq!(
+            serde_json::to_string(&Target::Strip { strip: 3 }).unwrap(),
+            r#"{"strip":3}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Target::Bus { bus: BusId::A1 }).unwrap(),
+            r#"{"bus":"A1"}"#
+        );
 
         assert_eq!(
             serde_json::from_str::<Target>(r#"{"strip":7}"#).unwrap(),
@@ -588,7 +737,10 @@ mod tests {
 
         assert!(json.get("profileName").is_some());
         assert!(json.get("takeDefaultOutput").is_some());
-        assert!(json.get("profile_name").is_none(), "snake_case would break the frontend");
+        assert!(
+            json.get("profile_name").is_none(),
+            "snake_case would break the frontend"
+        );
 
         let s = &json["strips"][0];
         for key in ["hwKey", "gainDb", "kind", "routes", "gate", "comp", "eq"] {
@@ -603,14 +755,23 @@ mod tests {
     #[test]
     fn strip_kind_is_lowercase_on_the_wire() {
         assert_eq!(serde_json::to_value(StripKind::Virtual).unwrap(), "virtual");
-        assert_eq!(serde_json::to_value(StripKind::Hardware).unwrap(), "hardware");
+        assert_eq!(
+            serde_json::to_value(StripKind::Hardware).unwrap(),
+            "hardware"
+        );
     }
 
     #[test]
     fn eq_band_kind_matches_the_typescript_union() {
-        assert_eq!(serde_json::to_value(EqBandKind::LowShelf).unwrap(), "low_shelf");
+        assert_eq!(
+            serde_json::to_value(EqBandKind::LowShelf).unwrap(),
+            "low_shelf"
+        );
         assert_eq!(serde_json::to_value(EqBandKind::Peak).unwrap(), "peak");
-        assert_eq!(serde_json::to_value(EqBandKind::HighShelf).unwrap(), "high_shelf");
+        assert_eq!(
+            serde_json::to_value(EqBandKind::HighShelf).unwrap(),
+            "high_shelf"
+        );
     }
 
     #[test]
@@ -631,7 +792,13 @@ mod tests {
 
     #[test]
     fn meter_frame_round_trips() {
-        let f = MeterFrame { seq: 9, strips: vec![[-6.0, -6.5, -9.0, -9.2]], buses: vec![[0.0; 4]], strips_pre: vec![[-3.0; 4]], buses_pre: vec![] };
+        let f = MeterFrame {
+            seq: 9,
+            strips: vec![[-6.0, -6.5, -9.0, -9.2]],
+            buses: vec![[0.0; 4]],
+            strips_pre: vec![[-3.0; 4]],
+            buses_pre: vec![],
+        };
         let back: MeterFrame = serde_json::from_str(&serde_json::to_string(&f).unwrap()).unwrap();
         assert_eq!(back, f);
     }
@@ -640,9 +807,19 @@ mod tests {
     #[test]
     fn engine_commands_round_trip() {
         let cmds = vec![
-            EngineCommand::SetGain { target: Target::Strip { strip: 1 }, db: -6.0 },
-            EngineCommand::SetRoute { strip: 1, bus: BusId::B1, on: true },
-            EngineCommand::SetEqParams { strip: 2, params: EqParams::default() },
+            EngineCommand::SetGain {
+                target: Target::Strip { strip: 1 },
+                db: -6.0,
+            },
+            EngineCommand::SetRoute {
+                strip: 1,
+                bus: BusId::B1,
+                on: true,
+            },
+            EngineCommand::SetEqParams {
+                strip: 2,
+                params: EqParams::default(),
+            },
             EngineCommand::SetDefaultOutput { on: true },
             EngineCommand::SetMetersEnabled { on: false },
             EngineCommand::Rename {
@@ -660,7 +837,10 @@ mod tests {
                 name: "Gaming".into(),
             },
             EngineCommand::CycleProfile { step: 1 },
-            EngineCommand::AddStrip { kind: StripKind::Hardware, hw_key: None },
+            EngineCommand::AddStrip {
+                kind: StripKind::Hardware,
+                hw_key: None,
+            },
             EngineCommand::RemoveStrip { strip: 3 },
             EngineCommand::AddBus { hardware: true },
             EngineCommand::RemoveBus { bus: BusId::A3 },
@@ -736,7 +916,11 @@ mod tests {
     /// list of eight; the color pad must keep its settings.
     #[test]
     fn eq_migration_splits_the_old_eight_band_layout() {
-        let mut old = EqParams { enabled: true, bands: EqParams::default().bands, color: vec![] };
+        let mut old = EqParams {
+            enabled: true,
+            bands: EqParams::default().bands,
+            color: vec![],
+        };
         let mut color = EqParams::color_defaults();
         color[2].gain_db = 7.5;
         old.bands.extend(color);
@@ -744,7 +928,11 @@ mod tests {
         assert_eq!(old.bands.len(), 4);
         assert_eq!(old.color[2].gain_db, 7.5);
 
-        let mut pre_pad = EqParams { enabled: false, bands: EqParams::panel_defaults(), color: vec![] };
+        let mut pre_pad = EqParams {
+            enabled: false,
+            bands: EqParams::panel_defaults(),
+            color: vec![],
+        };
         pre_pad.migrate();
         assert_eq!(pre_pad.color, EqParams::color_defaults().to_vec());
 
@@ -752,7 +940,10 @@ mod tests {
         current.bands.push(current.bands[0]);
         let before = current.clone();
         current.migrate();
-        assert_eq!(current, before, "a current profile with five bands is left alone");
+        assert_eq!(
+            current, before,
+            "a current profile with five bands is left alone"
+        );
     }
 
     /// The plugin has 16 slots: panel bands from the start, color bands in
@@ -760,11 +951,23 @@ mod tests {
     #[test]
     fn eq_slots_put_color_bands_last_and_switch_the_rest_off() {
         let mut eq = EqParams::default();
-        eq.bands.push(EqBand { kind: EqBandKind::LowCut, freq_hz: 80.0, gain_db: 0.0, q: 0.7 });
+        eq.bands.push(EqBand {
+            kind: EqBandKind::LowCut,
+            freq_hz: 80.0,
+            gain_db: 0.0,
+            q: 0.7,
+        });
         let slots = eq.slots();
         assert_eq!(slots[4].map(|b| b.kind), Some(EqBandKind::LowCut));
         assert!(slots[5..MAX_EQ_BANDS].iter().all(Option::is_none));
-        assert_eq!(slots[MAX_EQ_BANDS..].iter().flatten().copied().collect::<Vec<_>>(), EqParams::color_defaults().to_vec());
+        assert_eq!(
+            slots[MAX_EQ_BANDS..]
+                .iter()
+                .flatten()
+                .copied()
+                .collect::<Vec<_>>(),
+            EqParams::color_defaults().to_vec()
+        );
     }
 
     #[test]
@@ -773,7 +976,10 @@ mod tests {
         assert_eq!(eq.bands[0].kind, EqBandKind::LowShelf);
         assert_eq!(eq.bands[3].kind, EqBandKind::HighShelf);
         let freqs: Vec<f32> = eq.bands[..4].iter().map(|b| b.freq_hz).collect();
-        assert!(freqs.windows(2).all(|w| w[0] < w[1]), "bands must ascend: {freqs:?}");
+        assert!(
+            freqs.windows(2).all(|w| w[0] < w[1]),
+            "bands must ascend: {freqs:?}"
+        );
     }
 
     /// These are LSP para_equalizer `ft_N` port values; a wrong number silently

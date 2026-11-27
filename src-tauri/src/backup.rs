@@ -34,7 +34,10 @@ pub fn collect(state: &AppState) -> Result<Backup, String> {
         strips: state.strips.clone(),
         buses: state.buses.clone(),
     };
-    profiles.insert(state.profile_name.clone(), lm_engine::persist::profile_toml(&live).map_err(|e| e.to_string())?);
+    profiles.insert(
+        state.profile_name.clone(),
+        lm_engine::persist::profile_toml(&live).map_err(|e| e.to_string())?,
+    );
     Ok(Backup {
         format: FORMAT.into(),
         version: 1,
@@ -45,7 +48,8 @@ pub fn collect(state: &AppState) -> Result<Backup, String> {
 }
 
 pub fn parse(text: &str) -> Result<Backup, String> {
-    let b: Backup = serde_json::from_str(text).map_err(|_| "this is not a linuxmeeter backup file".to_string())?;
+    let b: Backup = serde_json::from_str(text)
+        .map_err(|_| "this is not a linuxmeeter backup file".to_string())?;
     if b.format != FORMAT {
         return Err("this is not a linuxmeeter backup file".into());
     }
@@ -53,7 +57,8 @@ pub fn parse(text: &str) -> Result<Backup, String> {
         return Err("this backup was made by a newer version of linuxmeeter".into());
     }
     for (name, text) in &b.profiles {
-        toml::from_str::<lm_engine::persist::Profile>(text).map_err(|e| format!("profile \"{name}\" in the backup is damaged: {e}"))?;
+        toml::from_str::<lm_engine::persist::Profile>(text)
+            .map_err(|e| format!("profile \"{name}\" in the backup is damaged: {e}"))?;
     }
     if !b.profiles.contains_key(&b.active_profile) {
         return Err("the backup's active profile is missing".into());
@@ -76,8 +81,11 @@ mod tests {
             profiles: BTreeMap::from([("Default".into(), "strips = 5".into())]),
             app: Default::default(),
         };
-        assert!(parse(&serde_json::to_string(&b).unwrap()).unwrap_err().contains("damaged"));
-        b.profiles.insert("Default".into(), "strips = []\nbuses = []\n".into());
+        assert!(parse(&serde_json::to_string(&b).unwrap())
+            .unwrap_err()
+            .contains("damaged"));
+        b.profiles
+            .insert("Default".into(), "strips = []\nbuses = []\n".into());
         assert!(parse(&serde_json::to_string(&b).unwrap()).is_ok());
         b.active_profile = "Gone".into();
         assert!(parse(&serde_json::to_string(&b).unwrap()).is_err());

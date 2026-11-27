@@ -51,9 +51,14 @@ enum ClientCmd {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 enum ServerMsg<'a> {
-    State { state: &'a AppState },
+    State {
+        state: &'a AppState,
+    },
     /// Peak dBFS per strip / bus, in `state` order.
-    Meters { strips: Vec<f32>, buses: Vec<f32> },
+    Meters {
+        strips: Vec<f32>,
+        buses: Vec<f32>,
+    },
 }
 
 struct Inner {
@@ -121,10 +126,11 @@ impl Remote {
     pub fn start(&self, port: u16, token: &str) -> Result<(), String> {
         self.stop();
         *self.inner.token.write().expect("lock") = token.to_string();
-        let listener = std::net::TcpListener::bind(("0.0.0.0", port)).map_err(|e| match e.kind() {
-            std::io::ErrorKind::AddrInUse => format!("port {port} is already in use"),
-            _ => format!("cannot listen on port {port}: {e}"),
-        })?;
+        let listener =
+            std::net::TcpListener::bind(("0.0.0.0", port)).map_err(|e| match e.kind() {
+                std::io::ErrorKind::AddrInUse => format!("port {port} is already in use"),
+                _ => format!("cannot listen on port {port}: {e}"),
+            })?;
         listener.set_nonblocking(true).map_err(|e| e.to_string())?;
         self.inner.shutdown.send_replace(false);
         let inner = self.inner.clone();
@@ -138,11 +144,14 @@ impl Remote {
                 .route("/", get(page))
                 .route("/ws", get(ws))
                 .with_state(inner);
-            let served = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-                .with_graceful_shutdown(async move {
-                    let _ = stop.wait_for(|s| *s).await;
-                })
-                .await;
+            let served = axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .with_graceful_shutdown(async move {
+                let _ = stop.wait_for(|s| *s).await;
+            })
+            .await;
             if let Err(e) = served {
                 tracing::error!("remote server stopped: {e}");
             }
@@ -171,7 +180,12 @@ impl Remote {
 
     /// Every third engine frame (~10/s) goes to the phones.
     pub fn publish_meters(&self, frame: &MeterFrame) {
-        if self.clients() == 0 || !self.meter_tick.fetch_add(1, Ordering::Relaxed).is_multiple_of(3) {
+        if self.clients() == 0
+            || !self
+                .meter_tick
+                .fetch_add(1, Ordering::Relaxed)
+                .is_multiple_of(3)
+        {
             return;
         }
         let peak = |v: &[f32; 4]| v[0].max(v[1]);
@@ -188,9 +202,21 @@ impl Remote {
     pub fn info(&self, enabled: bool, port: u16, token: &str, error: Option<String>) -> RemoteInfo {
         let url = format!("http://{}:{port}/?k={token}", lan_ip());
         let qr_svg = qrcode::QrCode::new(url.as_bytes())
-            .map(|c| c.render::<qrcode::render::svg::Color>().min_dimensions(180, 180).quiet_zone(true).build())
+            .map(|c| {
+                c.render::<qrcode::render::svg::Color>()
+                    .min_dimensions(180, 180)
+                    .quiet_zone(true)
+                    .build()
+            })
             .unwrap_or_default();
-        RemoteInfo { enabled, port, url, qr_svg, clients: self.clients(), error }
+        RemoteInfo {
+            enabled,
+            port,
+            url,
+            qr_svg,
+            clients: self.clients(),
+            error,
+        }
     }
 }
 
@@ -218,7 +244,10 @@ pub fn is_local(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(v4) => {
             let o = v4.octets();
-            v4.is_loopback() || v4.is_private() || v4.is_link_local() || (o[0] == 100 && (64..128).contains(&o[1]))
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || (o[0] == 100 && (64..128).contains(&o[1]))
         }
         IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
             Some(v4) => is_local(IpAddr::V4(v4)),
@@ -241,7 +270,11 @@ fn allowed(inner: &Inner, key: &str, addr: SocketAddr) -> bool {
     !token.is_empty() && *token == key && is_local(addr.ip())
 }
 
-async fn page(State(inner): State<Arc<Inner>>, ConnectInfo(addr): ConnectInfo<SocketAddr>, Query(q): Query<KeyQuery>) -> Response {
+async fn page(
+    State(inner): State<Arc<Inner>>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    Query(q): Query<KeyQuery>,
+) -> Response {
     if !allowed(&inner, &q.k, addr) {
         return (
             StatusCode::FORBIDDEN,
@@ -250,7 +283,10 @@ async fn page(State(inner): State<Arc<Inner>>, ConnectInfo(addr): ConnectInfo<So
             .into_response();
     }
     (
-        [(header::CONTENT_TYPE, "text/html; charset=utf-8"), (header::CACHE_CONTROL, "no-store")],
+        [
+            (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
         PAGE,
     )
         .into_response()
@@ -319,7 +355,11 @@ fn handle(inner: &Inner, cmd: ClientCmd, last_refresh: &mut Instant) {
     };
     match cmd {
         ClientCmd::Gain { target, db, done } => {
-            let db = if db.is_finite() { db.clamp(lm_protocol::taper::MIN_DB, lm_protocol::taper::MAX_DB) } else { lm_protocol::taper::MIN_DB };
+            let db = if db.is_finite() {
+                db.clamp(lm_protocol::taper::MIN_DB, lm_protocol::taper::MAX_DB)
+            } else {
+                lm_protocol::taper::MIN_DB
+            };
             send(EngineCommand::SetGain { target, db });
             // SetGain emits no state (the desktop fader is optimistic); the
             // window and other phones follow at ~8/s and on release.
@@ -341,7 +381,18 @@ mod tests {
 
     #[test]
     fn only_local_addresses_are_served() {
-        for ok in ["127.0.0.1", "192.168.1.20", "10.0.0.5", "172.16.3.4", "169.254.1.1", "100.101.102.103", "::1", "fd12::1", "fe80::1", "::ffff:192.168.0.2"] {
+        for ok in [
+            "127.0.0.1",
+            "192.168.1.20",
+            "10.0.0.5",
+            "172.16.3.4",
+            "169.254.1.1",
+            "100.101.102.103",
+            "::1",
+            "fd12::1",
+            "fe80::1",
+            "::ffff:192.168.0.2",
+        ] {
             assert!(is_local(ok.parse().unwrap()), "{ok}");
         }
         for bad in ["8.8.8.8", "100.128.0.1", "2001:db8::1", "::ffff:1.1.1.1"] {
@@ -351,10 +402,26 @@ mod tests {
 
     #[test]
     fn commands_parse_from_the_page() {
-        let c: ClientCmd = serde_json::from_str(r#"{"cmd":"gain","target":{"strip":3},"db":-6.5,"done":true}"#).unwrap();
-        assert!(matches!(c, ClientCmd::Gain { target: Target::Strip { strip: 3 }, done: true, .. }));
-        let c: ClientCmd = serde_json::from_str(r#"{"cmd":"mute","target":{"bus":"B1"},"mute":true}"#).unwrap();
-        assert!(matches!(c, ClientCmd::Mute { target: Target::Bus { bus: BusId::B1 }, mute: true }));
+        let c: ClientCmd =
+            serde_json::from_str(r#"{"cmd":"gain","target":{"strip":3},"db":-6.5,"done":true}"#)
+                .unwrap();
+        assert!(matches!(
+            c,
+            ClientCmd::Gain {
+                target: Target::Strip { strip: 3 },
+                done: true,
+                ..
+            }
+        ));
+        let c: ClientCmd =
+            serde_json::from_str(r#"{"cmd":"mute","target":{"bus":"B1"},"mute":true}"#).unwrap();
+        assert!(matches!(
+            c,
+            ClientCmd::Mute {
+                target: Target::Bus { bus: BusId::B1 },
+                mute: true
+            }
+        ));
         let c: ClientCmd = serde_json::from_str(r#"{"cmd":"mics","mute":false}"#).unwrap();
         assert!(matches!(c, ClientCmd::Mics { mute: false }));
         let c: ClientCmd = serde_json::from_str(r#"{"cmd":"profile","name":"Gaming"}"#).unwrap();

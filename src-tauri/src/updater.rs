@@ -46,7 +46,10 @@ impl Platform {
     fn from_os_release(text: &str) -> Self {
         let mut ids = String::new();
         for line in text.lines() {
-            if let Some(v) = line.strip_prefix("ID=").or_else(|| line.strip_prefix("ID_LIKE=")) {
+            if let Some(v) = line
+                .strip_prefix("ID=")
+                .or_else(|| line.strip_prefix("ID_LIKE="))
+            {
                 ids.push(' ');
                 ids.push_str(&v.trim_matches('"').to_lowercase());
             }
@@ -142,7 +145,9 @@ fn client() -> Result<reqwest::Client, String> {
 /// "0.4.1", "0.4.1.r312", "v0.5.0" -> [0, 4, 1] (the release part only).
 pub fn version_key(v: &str) -> Vec<u64> {
     let v = v.trim().trim_start_matches('v');
-    let base = v.split(['.', '+', '-']).take_while(|p| p.chars().all(|c| c.is_ascii_digit()) && !p.is_empty());
+    let base = v
+        .split(['.', '+', '-'])
+        .take_while(|p| p.chars().all(|c| c.is_ascii_digit()) && !p.is_empty());
     base.map(|p| p.parse().unwrap_or(0)).collect()
 }
 
@@ -150,7 +155,9 @@ pub async fn check(channel: Channel) -> Result<UpdateInfo, String> {
     let platform = Platform::detect();
     let http = client()?;
     let releases: Vec<GhRelease> = http
-        .get(format!("https://api.github.com/repos/{REPO}/releases?per_page=30"))
+        .get(format!(
+            "https://api.github.com/repos/{REPO}/releases?per_page=30"
+        ))
         .header("Accept", "application/vnd.github+json")
         .send()
         .await
@@ -174,20 +181,28 @@ pub async fn check(channel: Channel) -> Result<UpdateInfo, String> {
 
     match channel {
         Channel::Stable => {
-            let Some(rel) = releases.iter().find(|r| !r.draft && !r.prerelease && r.tag_name != "edge") else {
+            let Some(rel) = releases
+                .iter()
+                .find(|r| !r.draft && !r.prerelease && r.tag_name != "edge")
+            else {
                 return Ok(info);
             };
             info.latest = rel.tag_name.trim_start_matches('v').to_string();
             info.release_url = rel.html_url.clone();
             info.available = version_key(&rel.tag_name) > version_key(BUILD_VERSION);
-            info.asset = rel.assets.iter().find(|a| platform.matches_stable_asset(&a.name)).map(to_asset);
+            info.asset = rel
+                .assets
+                .iter()
+                .find(|a| platform.matches_stable_asset(&a.name))
+                .map(to_asset);
         }
         Channel::Edge => {
             let Some(rel) = releases.iter().find(|r| r.tag_name == "edge") else {
                 return Ok(info);
             };
             info.release_url = rel.html_url.clone();
-            let (Some(pkg), Some(sha_name)) = (platform.edge_asset(), platform.edge_sha_asset()) else {
+            let (Some(pkg), Some(sha_name)) = (platform.edge_asset(), platform.edge_sha_asset())
+            else {
                 return Ok(info);
             };
             let Some(sha_asset) = rel.assets.iter().find(|a| a.name == sha_name) else {
@@ -218,19 +233,29 @@ pub async fn check(channel: Channel) -> Result<UpdateInfo, String> {
 }
 
 fn to_asset(a: &GhAsset) -> Asset {
-    Asset { name: a.name.clone(), url: a.browser_download_url.clone(), digest: a.digest.clone() }
+    Asset {
+        name: a.name.clone(),
+        url: a.browser_download_url.clone(),
+        digest: a.digest.clone(),
+    }
 }
 
 fn cache_dir() -> PathBuf {
     std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache"))
+        .unwrap_or_else(|| {
+            PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".cache")
+        })
         .join("linuxmeeter")
 }
 
 /// Download the package, check its digest, and install it with pkexec.
 /// `progress(text)` reports each step.
-pub async fn install(platform: Platform, asset: &Asset, progress: impl Fn(&str)) -> Result<(), String> {
+pub async fn install(
+    platform: Platform,
+    asset: &Asset,
+    progress: impl Fn(&str),
+) -> Result<(), String> {
     if platform == Platform::Unsupported {
         return Err("updates can be installed on Arch and Debian; download the package from the releases page".into());
     }
@@ -256,7 +281,9 @@ pub async fn install(platform: Platform, asset: &Asset, progress: impl Fn(&str))
         Some(0) => Ok(()),
         // pkexec: 126 = not authorized / dialog dismissed, 127 = no agent.
         Some(126) => Err("installation cancelled".into()),
-        Some(127) => Err("no password prompt available (polkit agent); update from the releases page".into()),
+        Some(127) => {
+            Err("no password prompt available (polkit agent); update from the releases page".into())
+        }
         _ => Err(format!("the package manager failed ({status})")),
     }
 }
@@ -272,7 +299,11 @@ pub async fn download_verified(asset: &Asset) -> Result<Vec<u8>, String> {
         .bytes()
         .await
         .map_err(|e| format!("download failed: {e}"))?;
-    if let Some(want) = asset.digest.as_deref().and_then(|d| d.strip_prefix("sha256:")) {
+    if let Some(want) = asset
+        .digest
+        .as_deref()
+        .and_then(|d| d.strip_prefix("sha256:"))
+    {
         let got = hex(&Sha256::digest(&bytes));
         if !got.eq_ignore_ascii_case(want) {
             return Err("the download is damaged (checksum mismatch); try again".into());
@@ -290,8 +321,15 @@ fn install_command(platform: Platform, path: &Path) -> std::process::Command {
         // Absolute path, so apt treats it as a file; downgrades allowed for
         // switching from edge back to stable.
         _ => {
-            c.args(["env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y", "--allow-downgrades"])
-                .arg(path);
+            c.args([
+                "env",
+                "DEBIAN_FRONTEND=noninteractive",
+                "apt-get",
+                "install",
+                "-y",
+                "--allow-downgrades",
+            ])
+            .arg(path);
         }
     }
     c
@@ -335,10 +373,19 @@ mod tests {
     #[test]
     fn platforms_from_os_release() {
         assert_eq!(Platform::from_os_release("ID=arch\n"), Platform::Arch);
-        assert_eq!(Platform::from_os_release("ID=cachyos\nID_LIKE=arch\n"), Platform::Arch);
+        assert_eq!(
+            Platform::from_os_release("ID=cachyos\nID_LIKE=arch\n"),
+            Platform::Arch
+        );
         assert_eq!(Platform::from_os_release("ID=debian\n"), Platform::Debian);
-        assert_eq!(Platform::from_os_release("ID=linuxmint\nID_LIKE=\"ubuntu debian\"\n"), Platform::Debian);
-        assert_eq!(Platform::from_os_release("ID=fedora\n"), Platform::Unsupported);
+        assert_eq!(
+            Platform::from_os_release("ID=linuxmint\nID_LIKE=\"ubuntu debian\"\n"),
+            Platform::Debian
+        );
+        assert_eq!(
+            Platform::from_os_release("ID=fedora\n"),
+            Platform::Unsupported
+        );
     }
 
     #[test]
@@ -354,7 +401,10 @@ mod tests {
     fn deleted_exe_suffix_is_stripped() {
         // Only the suffix logic; current_exe itself is the test binary.
         let p = PathBuf::from("/usr/bin/linuxmeeter (deleted)");
-        assert_eq!(p.to_string_lossy().strip_suffix(" (deleted)"), Some("/usr/bin/linuxmeeter"));
+        assert_eq!(
+            p.to_string_lossy().strip_suffix(" (deleted)"),
+            Some("/usr/bin/linuxmeeter")
+        );
     }
 }
 
@@ -369,11 +419,15 @@ mod live {
             println!("{ch:?}: {r:#?}");
             let info = r.expect("check");
             if let Some(mut asset) = info.asset {
-                let bytes = tauri::async_runtime::block_on(super::download_verified(&asset)).expect("download");
+                let bytes = tauri::async_runtime::block_on(super::download_verified(&asset))
+                    .expect("download");
                 println!("downloaded {} bytes, digest ok", bytes.len());
                 asset.digest = Some(format!("sha256:{}", "0".repeat(64)));
                 let bad = tauri::async_runtime::block_on(super::download_verified(&asset));
-                assert!(bad.unwrap_err().contains("checksum"), "a wrong digest must be refused");
+                assert!(
+                    bad.unwrap_err().contains("checksum"),
+                    "a wrong digest must be refused"
+                );
             }
         }
     }

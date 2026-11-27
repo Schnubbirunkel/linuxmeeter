@@ -62,7 +62,10 @@ fn path() -> PathBuf {
 fn cell() -> &'static Mutex<Settings> {
     static CELL: OnceLock<Mutex<Settings>> = OnceLock::new();
     CELL.get_or_init(|| {
-        let s = std::fs::read_to_string(path()).ok().and_then(|s| toml::from_str(&s).ok()).unwrap_or_default();
+        let s = std::fs::read_to_string(path())
+            .ok()
+            .and_then(|s| toml::from_str(&s).ok())
+            .unwrap_or_default();
         Mutex::new(s)
     })
 }

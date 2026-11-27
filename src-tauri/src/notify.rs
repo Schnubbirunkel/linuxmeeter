@@ -65,7 +65,8 @@ impl Notifier {
                         Ok(handle) => {
                             // A little short of the timeout, so a replace never
                             // races the bubble closing.
-                            let visible = Duration::from_millis(note.timeout_ms.max(0) as u64).saturating_sub(Duration::from_millis(300));
+                            let visible = Duration::from_millis(note.timeout_ms.max(0) as u64)
+                                .saturating_sub(Duration::from_millis(300));
                             ids.insert(note.key, (handle.id(), now + visible));
                         }
                         Err(e) => tracing::warn!("notification failed: {e}"),

@@ -176,12 +176,19 @@ impl Engine {
             tracing::warn!("no audio sink found yet; deferring graph build");
             return;
         };
-        let default_source = self.default_source.clone().or_else(|| self.first_node("Audio/Source"));
+        let default_source = self
+            .default_source
+            .clone()
+            .or_else(|| self.first_node("Audio/Source"));
         let second_sink = self
             .model
             .nodes
             .values()
-            .filter(|n| n.media_class == "Audio/Sink" && n.name.starts_with("alsa_output") && n.name != default_sink)
+            .filter(|n| {
+                n.media_class == "Audio/Sink"
+                    && n.name.starts_with("alsa_output")
+                    && n.name != default_sink
+            })
             .map(|n| n.name.clone())
             .next();
 
@@ -205,7 +212,11 @@ impl Engine {
             });
             next_id += 1;
         }
-        for (label, on) in [("System", vec![BusId::A1]), ("Music", vec![BusId::A1]), ("Chat", vec![BusId::A1, BusId::B1])] {
+        for (label, on) in [
+            ("System", vec![BusId::A1]),
+            ("Music", vec![BusId::A1]),
+            ("Chat", vec![BusId::A1, BusId::B1]),
+        ] {
             strips.push(StripState {
                 id: next_id,
                 kind: StripKind::Virtual,
@@ -224,7 +235,11 @@ impl Engine {
         }
         let buses = vec![
             bus(BusId::A1, "Speakers", Some(default_sink.clone())),
-            bus(BusId::A2, "Headphones", Some(second_sink.unwrap_or(default_sink))),
+            bus(
+                BusId::A2,
+                "Headphones",
+                Some(second_sink.unwrap_or(default_sink)),
+            ),
             bus(BusId::B1, "Stream Mic", None),
             bus(BusId::B2, "Aux", None),
         ];
@@ -259,7 +274,8 @@ impl Engine {
         for strip in &self.app.strips {
             match MeterTap::new(self.core.clone(), &format!("s{}", strip.id)) {
                 Ok(tap) => {
-                    self.links.set_route(&strip.out_node(), &tap.node_name.clone(), true);
+                    self.links
+                        .set_route(&strip.out_node(), &tap.node_name.clone(), true);
                     self.strip_taps.push(tap);
                 }
                 Err(e) => tracing::warn!("strip tap failed: {e}"),
@@ -268,7 +284,8 @@ impl Engine {
         for b in &self.app.buses {
             match MeterTap::new(self.core.clone(), &format!("b{:?}", b.id).to_lowercase()) {
                 Ok(tap) => {
-                    self.links.set_route(&b.tap_node(), &tap.node_name.clone(), true);
+                    self.links
+                        .set_route(&b.tap_node(), &tap.node_name.clone(), true);
                     self.bus_taps.push(tap);
                 }
                 Err(e) => tracing::warn!("bus tap failed: {e}"),
@@ -283,12 +300,18 @@ impl Engine {
         }
         self.send_state();
         self.save_now(); // ensure the profile file exists from first launch
-        tracing::info!("graph built: {} strips, {} buses", self.app.strips.len(), self.app.buses.len());
+        tracing::info!(
+            "graph built: {} strips, {} buses",
+            self.app.strips.len(),
+            self.app.buses.len()
+        );
     }
 
     fn load_strip_module(&mut self, strip: &StripState) {
         let args = match (&strip.kind, &strip.hw_key) {
-            (StripKind::Hardware, Some(hw)) => hardware_strip_args(&strip.node_base(), &strip.label, hw),
+            (StripKind::Hardware, Some(hw)) => {
+                hardware_strip_args(&strip.node_base(), &strip.label, hw)
+            }
             _ => virtual_strip_args(&strip.node_base(), &strip.label, false),
         };
         match LoadedModule::load(&self.context, "libpipewire-module-filter-chain", &args) {
@@ -315,7 +338,9 @@ impl Engine {
     /// device). Node names stay identical, so the LinkManager's desired routes
     /// and the meter tap re-link automatically as the new ports appear.
     fn reload_strip(&mut self, id: StripId) {
-        let Some(strip) = self.app.strips.iter().find(|s| s.id == id).cloned() else { return };
+        let Some(strip) = self.app.strips.iter().find(|s| s.id == id).cloned() else {
+            return;
+        };
         self.remember_streams(&strip.node_base());
         self.nodes.remove(&strip.control_node());
         self.strip_modules.remove(&id); // drop unloads the old module
@@ -324,7 +349,9 @@ impl Engine {
     }
 
     fn reload_bus(&mut self, id: BusId) {
-        let Some(b) = self.app.buses.iter().find(|b| b.id == id).cloned() else { return };
+        let Some(b) = self.app.buses.iter().find(|b| b.id == id).cloned() else {
+            return;
+        };
         self.remember_streams(&b.node_base());
         self.nodes.remove(&b.in_node());
         self.bus_modules.remove(&id);
@@ -515,7 +542,9 @@ impl Engine {
     // ---- adding and removing strips/buses ------------------------------------
 
     fn strip_tap(&self, id: StripId) -> Option<MeterTap> {
-        MeterTap::new(self.core.clone(), &format!("s{id}")).map_err(|e| tracing::warn!("strip tap failed: {e}")).ok()
+        MeterTap::new(self.core.clone(), &format!("s{id}"))
+            .map_err(|e| tracing::warn!("strip tap failed: {e}"))
+            .ok()
     }
 
     fn bus_tap(&self, id: BusId) -> Option<MeterTap> {
@@ -527,13 +556,23 @@ impl Engine {
     /// `base` alone if no strip/bus uses it yet, else `base 2`, `base 3`, ...
     fn unique_label(&self, base: &str) -> String {
         let taken = |l: &str| {
-            self.app.strips.iter().any(|s| s.label.eq_ignore_ascii_case(l))
-                || self.app.buses.iter().any(|b| b.label.eq_ignore_ascii_case(l))
+            self.app
+                .strips
+                .iter()
+                .any(|s| s.label.eq_ignore_ascii_case(l))
+                || self
+                    .app
+                    .buses
+                    .iter()
+                    .any(|b| b.label.eq_ignore_ascii_case(l))
         };
         if !taken(base) {
             return base.to_string();
         }
-        (2..).map(|n| format!("{base} {n}")).find(|l| !taken(l)).expect("unbounded")
+        (2..)
+            .map(|n| format!("{base} {n}"))
+            .find(|l| !taken(l))
+            .expect("unbounded")
     }
 
     fn add_strip(&mut self, kind: StripKind, hw_key: Option<String>) {
@@ -544,17 +583,29 @@ impl Engine {
             StripKind::Virtual => None,
             StripKind::Hardware => {
                 // Prefer an input no strip captures yet, then the default mic.
-                let used: HashSet<&str> = self.app.strips.iter().filter_map(|s| s.hw_key.as_deref()).collect();
+                let used: HashSet<&str> = self
+                    .app
+                    .strips
+                    .iter()
+                    .filter_map(|s| s.hw_key.as_deref())
+                    .collect();
                 let pick = hw_key.or_else(|| {
                     let mut inputs: Vec<&str> = self
                         .model
                         .nodes
                         .values()
-                        .filter(|n| n.media_class == "Audio/Source" && (n.name.starts_with("alsa_") || n.name.starts_with("bluez_")))
+                        .filter(|n| {
+                            n.media_class == "Audio/Source"
+                                && (n.name.starts_with("alsa_") || n.name.starts_with("bluez_"))
+                        })
                         .map(|n| n.name.as_str())
                         .collect();
                     inputs.sort_unstable();
-                    inputs.into_iter().find(|n| !used.contains(n)).map(String::from).or_else(|| self.default_source.clone())
+                    inputs
+                        .into_iter()
+                        .find(|n| !used.contains(n))
+                        .map(String::from)
+                        .or_else(|| self.default_source.clone())
                 });
                 let Some(pick) = pick else {
                     tracing::warn!("no audio input to capture; hardware strip not added");
@@ -570,7 +621,12 @@ impl Engine {
         });
         // New hardware inputs start unrouted (a mic must never reach the
         // speakers by surprise); virtual inputs play to the first A bus.
-        let first_a = self.app.buses.iter().find(|b| b.id.is_hardware()).map(|b| b.id);
+        let first_a = self
+            .app
+            .buses
+            .iter()
+            .find(|b| b.id.is_hardware())
+            .map(|b| b.id);
         let on: Vec<BusId> = match kind {
             StripKind::Virtual => first_a.into_iter().collect(),
             StripKind::Hardware => vec![],
@@ -596,7 +652,12 @@ impl Engine {
         // Hardware strips are listed before virtual ones (as in the window),
         // and the meter taps follow the same order as `app.strips`.
         let at = match kind {
-            StripKind::Hardware => self.app.strips.iter().rposition(|s| s.kind == StripKind::Hardware).map_or(0, |i| i + 1),
+            StripKind::Hardware => self
+                .app
+                .strips
+                .iter()
+                .rposition(|s| s.kind == StripKind::Hardware)
+                .map_or(0, |i| i + 1),
             StripKind::Virtual => self.app.strips.len(),
         };
         self.load_strip_module(&strip);
@@ -605,8 +666,11 @@ impl Engine {
                 self.links.set_route(&strip.out_node(), &b.in_node(), true);
             }
         }
-        let Some(tap) = self.strip_tap(id) else { return };
-        self.links.set_route(&strip.out_node(), &tap.node_name.clone(), true);
+        let Some(tap) = self.strip_tap(id) else {
+            return;
+        };
+        self.links
+            .set_route(&strip.out_node(), &tap.node_name.clone(), true);
         self.strip_taps.insert(at, tap);
         self.app.strips.insert(at, strip);
         self.sync_pre_taps();
@@ -615,13 +679,16 @@ impl Engine {
     }
 
     fn remove_strip(&mut self, id: StripId) {
-        let Some(at) = self.app.strips.iter().position(|s| s.id == id) else { return };
+        let Some(at) = self.app.strips.iter().position(|s| s.id == id) else {
+            return;
+        };
         let strip = self.app.strips.remove(at);
         for b in &self.app.buses {
             self.links.set_route(&strip.out_node(), &b.in_node(), false);
         }
         let tap = self.strip_taps.remove(at);
-        self.links.set_route(&strip.out_node(), &tap.node_name, false);
+        self.links
+            .set_route(&strip.out_node(), &tap.node_name, false);
         drop(tap);
         self.nodes.remove(&strip.control_node());
         self.wanted_controls.remove(&strip.control_node());
@@ -646,7 +713,11 @@ impl Engine {
             return;
         };
         let target = if hardware {
-            let Some(sink) = self.default_sink.clone().or_else(|| self.first_node("Audio/Sink")) else {
+            let Some(sink) = self
+                .default_sink
+                .clone()
+                .or_else(|| self.first_node("Audio/Sink"))
+            else {
                 tracing::warn!("no audio output to play to; bus not added");
                 return;
             };
@@ -656,10 +727,16 @@ impl Engine {
         };
         let label = self.unique_label(if hardware { "Speakers" } else { "Virtual Mic" });
         let b = bus(id, &label, target);
-        let at = self.app.buses.iter().position(|x| x.id > id).unwrap_or(self.app.buses.len());
+        let at = self
+            .app
+            .buses
+            .iter()
+            .position(|x| x.id > id)
+            .unwrap_or(self.app.buses.len());
         self.load_bus_module(&b);
         let Some(tap) = self.bus_tap(id) else { return };
-        self.links.set_route(&b.tap_node(), &tap.node_name.clone(), true);
+        self.links
+            .set_route(&b.tap_node(), &tap.node_name.clone(), true);
         self.bus_taps.insert(at, tap);
         for s in &mut self.app.strips {
             s.routes.entry(id).or_insert(false);
@@ -671,7 +748,9 @@ impl Engine {
     }
 
     fn remove_bus(&mut self, id: BusId) {
-        let Some(at) = self.app.buses.iter().position(|b| b.id == id) else { return };
+        let Some(at) = self.app.buses.iter().position(|b| b.id == id) else {
+            return;
+        };
         let b = self.app.buses.remove(at);
         for s in &mut self.app.strips {
             s.routes.insert(id, false);
@@ -720,7 +799,9 @@ impl Engine {
 
         let mut wanted: HashSet<(String, String)> = HashSet::new();
         for s in &self.app.strips {
-            let Some(tap) = self.pre_strip_taps.get(&s.id) else { continue };
+            let Some(tap) = self.pre_strip_taps.get(&s.id) else {
+                continue;
+            };
             let source = match s.kind {
                 StripKind::Virtual => Some(s.node_base()),
                 StripKind::Hardware => s.hw_key.clone(),
@@ -730,8 +811,15 @@ impl Engine {
             }
         }
         for b in &self.app.buses {
-            let Some(tap) = self.pre_bus_taps.get(&b.id) else { continue };
-            for s in self.app.strips.iter().filter(|s| s.routes.get(&b.id).copied().unwrap_or(false)) {
+            let Some(tap) = self.pre_bus_taps.get(&b.id) else {
+                continue;
+            };
+            for s in self
+                .app
+                .strips
+                .iter()
+                .filter(|s| s.routes.get(&b.id).copied().unwrap_or(false))
+            {
                 wanted.insert((s.out_node(), tap.node_name.clone()));
             }
         }
@@ -755,14 +843,18 @@ impl Engine {
     }
 
     fn reconcile(&mut self) {
-        let Engine { links, core, model, .. } = self;
+        let Engine {
+            links, core, model, ..
+        } = self;
         links.reconcile(core, model);
     }
 
     // ---- param application --------------------------------------------------
 
     fn set_props(&self, node_name: &str, bytes: &[u8]) {
-        let Some(node) = self.nodes.get(node_name) else { return };
+        let Some(node) = self.nodes.get(node_name) else {
+            return;
+        };
         if let Some(pod) = libspa::pod::Pod::from_bytes(bytes) {
             node.set_param(libspa::param::ParamType::Props, 0, pod);
         }
@@ -779,7 +871,11 @@ impl Engine {
                 None => return,
             },
         };
-        let lin = if db == f32::NEG_INFINITY || db <= -71.0 { 0.0 } else { params::db_to_linear(db) };
+        let lin = if db == f32::NEG_INFINITY || db <= -71.0 {
+            0.0
+        } else {
+            params::db_to_linear(db)
+        };
         self.set_props(&node, &params::channel_volumes(lin));
     }
 
@@ -849,7 +945,12 @@ impl Engine {
 
     /// Push the full parameter set for whichever strip/bus owns `node_name`.
     fn apply_all_for(&self, node_name: &str) {
-        if let Some(s) = self.app.strips.iter().find(|s| s.control_node() == node_name) {
+        if let Some(s) = self
+            .app
+            .strips
+            .iter()
+            .find(|s| s.control_node() == node_name)
+        {
             self.apply_gain(Target::Strip { strip: s.id });
             self.apply_gate(s);
             self.apply_comp(s);
@@ -919,7 +1020,13 @@ impl Engine {
                         s.routes.insert(bus, on);
                         s.out_node()
                     })
-                    .zip(self.app.buses.iter().find(|b| b.id == bus).map(|b| b.in_node()));
+                    .zip(
+                        self.app
+                            .buses
+                            .iter()
+                            .find(|b| b.id == bus)
+                            .map(|b| b.in_node()),
+                    );
                 if let Some((out, into)) = pair {
                     self.links.set_route(&out, &into, on);
                     self.sync_pre_taps();
@@ -1111,12 +1218,15 @@ impl Engine {
             EngineCommand::RemoveBus { bus } => self.remove_bus(bus),
             EngineCommand::ImportProfiles { files, active } => {
                 for (name, text) in &files {
-                    let Some(name) = lm_protocol::clean_profile_name(name) else { continue };
+                    let Some(name) = lm_protocol::clean_profile_name(name) else {
+                        continue;
+                    };
                     if let Err(e) = crate::persist::save_profile_text(&name, text) {
                         tracing::warn!("import of profile {name} failed: {e}");
                     }
                 }
-                let active = lm_protocol::clean_profile_name(&active).unwrap_or_else(|| self.app.profile_name.clone());
+                let active = lm_protocol::clean_profile_name(&active)
+                    .unwrap_or_else(|| self.app.profile_name.clone());
                 match crate::persist::load_profile(&active) {
                     Some(p) => self.apply_profile(active, p),
                     None => self.send_state(),
@@ -1132,14 +1242,23 @@ impl Engine {
                     .or_else(|| self.app.buses.iter().find_map(|b| b.target_hw_key.clone()));
                 let now = std::time::Instant::now();
                 self.beeps.retain(|b| !b.is_done(now));
-                tracing::info!("warning tone ({}) -> {}", if rising { "mics live" } else { "mics muted" }, target.as_deref().unwrap_or("default output"));
+                tracing::info!(
+                    "warning tone ({}) -> {}",
+                    if rising { "mics live" } else { "mics muted" },
+                    target.as_deref().unwrap_or("default output")
+                );
                 match crate::beep::Beep::play(self.core.clone(), target.as_deref(), rising) {
                     Ok(b) => self.beeps.push(b),
                     Err(e) => tracing::warn!("warning tone failed: {e}"),
                 }
             }
             EngineCommand::SetMicsMute { mute } => {
-                for s in self.app.strips.iter_mut().filter(|s| s.kind == StripKind::Hardware) {
+                for s in self
+                    .app
+                    .strips
+                    .iter_mut()
+                    .filter(|s| s.kind == StripKind::Hardware)
+                {
                     s.mute = mute;
                 }
                 self.apply_strip_mutes();
@@ -1200,13 +1319,21 @@ impl Engine {
                 .app
                 .strips
                 .iter()
-                .map(|s| self.pre_strip_taps.get(&s.id).map_or([SILENT_DB; 4], |t| t.accum.drain()))
+                .map(|s| {
+                    self.pre_strip_taps
+                        .get(&s.id)
+                        .map_or([SILENT_DB; 4], |t| t.accum.drain())
+                })
                 .collect(),
             buses_pre: self
                 .app
                 .buses
                 .iter()
-                .map(|b| self.pre_bus_taps.get(&b.id).map_or([SILENT_DB; 4], |t| t.accum.drain()))
+                .map(|b| {
+                    self.pre_bus_taps
+                        .get(&b.id)
+                        .map_or([SILENT_DB; 4], |t| t.accum.drain())
+                })
                 .collect(),
         }
     }
@@ -1277,10 +1404,13 @@ fn run(
                 match global.type_ {
                     ObjectType::Node => {
                         let Some(props) = global.props else { return };
-                        let Some(n) = parse::node(global.id, props) else { return };
+                        let Some(n) = parse::node(global.id, props) else {
+                            return;
+                        };
                         let name = n.name.clone();
                         let serial = n.serial;
-                        let is_device = n.media_class == "Audio/Sink" || n.media_class == "Audio/Source";
+                        let is_device =
+                            n.media_class == "Audio/Sink" || n.media_class == "Audio/Source";
                         e.model.nodes.insert(global.id, n);
                         e.retarget_streams(&name, serial);
                         if e.wanted_controls.contains(&name) && !e.nodes.contains_key(&name) {
@@ -1323,7 +1453,9 @@ fn run(
                         if props.get("metadata.name") != Some("default") || e.metadata.is_some() {
                             return;
                         }
-                        let Some(registry) = registry_weak.upgrade() else { return };
+                        let Some(registry) = registry_weak.upgrade() else {
+                            return;
+                        };
                         if let Ok(md) = registry.bind::<Metadata, _>(global) {
                             let engine2 = engine.clone();
                             let listener = md
@@ -1428,7 +1560,10 @@ fn run(
         })
     };
     timer
-        .update_timer(Some(Duration::from_millis(33)), Some(Duration::from_millis(33)))
+        .update_timer(
+            Some(Duration::from_millis(33)),
+            Some(Duration::from_millis(33)),
+        )
         .into_result()?;
 
     // Debounced profile auto-save.

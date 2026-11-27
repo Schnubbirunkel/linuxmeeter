@@ -80,7 +80,12 @@ fn new_remote_key(data: tauri::State<AppData>) -> remote::RemoteInfo {
 #[tauri::command]
 fn get_remote(data: tauri::State<AppData>) -> remote::RemoteInfo {
     let s = settings::get();
-    data.remote.info(s.remote_enabled && data.remote.is_running(), s.remote_port, &s.remote_key, None)
+    data.remote.info(
+        s.remote_enabled && data.remote.is_running(),
+        s.remote_port,
+        &s.remote_key,
+        None,
+    )
 }
 
 fn remote_apply(r: &remote::Remote, s: &settings::Settings) -> remote::RemoteInfo {
@@ -122,7 +127,10 @@ fn get_shortcuts(data: tauri::State<AppData>) -> ShortcutInfo {
 /// Save everything (all profiles + app settings) to a file the user picks.
 /// Returns the path, or None if the dialog was cancelled.
 #[tauri::command]
-async fn export_settings(app: tauri::AppHandle, data: tauri::State<'_, AppData>) -> Result<Option<String>, String> {
+async fn export_settings(
+    app: tauri::AppHandle,
+    data: tauri::State<'_, AppData>,
+) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
     let Some(path) = app
         .dialog()
@@ -140,8 +148,14 @@ async fn export_settings(app: tauri::AppHandle, data: tauri::State<'_, AppData>)
 }
 
 fn export_to(data: &AppData, path: &std::path::Path) -> Result<(), String> {
-    let state = data.state.read().expect("state lock").clone().ok_or("mixer is still starting")?;
-    let text = serde_json::to_string_pretty(&backup::collect(&state)?).map_err(|e| e.to_string())?;
+    let state = data
+        .state
+        .read()
+        .expect("state lock")
+        .clone()
+        .ok_or("mixer is still starting")?;
+    let text =
+        serde_json::to_string_pretty(&backup::collect(&state)?).map_err(|e| e.to_string())?;
     std::fs::write(path, text).map_err(|e| format!("could not write {}: {e}", path.display()))
 }
 
@@ -150,7 +164,9 @@ fn import_text(app: &tauri::AppHandle, data: &AppData, text: &str) -> Result<Vec
     let b = backup::parse(text)?;
     let old = settings::get().shortcuts;
     settings::update(|s| *s = b.app.clone())?;
-    data.notifier.enabled.store(b.app.notifications, std::sync::atomic::Ordering::Relaxed);
+    data.notifier
+        .enabled
+        .store(b.app.notifications, std::sync::atomic::Ordering::Relaxed);
     if let Some(sc) = data.shortcuts.get() {
         for action in old.keys().filter(|a| !b.app.shortcuts.contains_key(*a)) {
             let _ = sc.set(action, None);
@@ -163,7 +179,10 @@ fn import_text(app: &tauri::AppHandle, data: &AppData, text: &str) -> Result<Vec
     }
     let names: Vec<String> = b.profiles.keys().cloned().collect();
     data.cmd_tx
-        .send(EngineCommand::ImportProfiles { files: b.profiles.into_iter().collect(), active: b.active_profile })
+        .send(EngineCommand::ImportProfiles {
+            files: b.profiles.into_iter().collect(),
+            active: b.active_profile,
+        })
         .map_err(|_| "engine unavailable".to_string())?;
     let _ = app.emit("shortcuts_changed", ());
     Ok(names)
@@ -172,7 +191,10 @@ fn import_text(app: &tauri::AppHandle, data: &AppData, text: &str) -> Result<Vec
 /// Restore a file written by `export_settings`: profiles, active profile,
 /// notifications and shortcuts. Returns the restored profile names.
 #[tauri::command]
-async fn import_settings(app: tauri::AppHandle, data: tauri::State<'_, AppData>) -> Result<Option<Vec<String>>, String> {
+async fn import_settings(
+    app: tauri::AppHandle,
+    data: tauri::State<'_, AppData>,
+) -> Result<Option<Vec<String>>, String> {
     use tauri_plugin_dialog::DialogExt;
     let Some(path) = app
         .dialog()
@@ -184,19 +206,26 @@ async fn import_settings(app: tauri::AppHandle, data: tauri::State<'_, AppData>)
         return Ok(None);
     };
     let path = path.into_path().map_err(|e| e.to_string())?;
-    let text = std::fs::read_to_string(&path).map_err(|e| format!("could not read {}: {e}", path.display()))?;
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| format!("could not read {}: {e}", path.display()))?;
     import_text(&app, &data, &text).map(Some)
 }
 
 /// Bind `keys` ("Ctrl+Alt+M", None = remove) to a ctl `action`; returns the stored keys.
 #[tauri::command]
-fn set_shortcut(data: tauri::State<AppData>, action: String, keys: Option<String>) -> Result<Option<String>, String> {
+fn set_shortcut(
+    data: tauri::State<AppData>,
+    action: String,
+    keys: Option<String>,
+) -> Result<Option<String>, String> {
     let sc = data.shortcuts.get().ok_or("shortcuts are still starting")?;
     sc.set(&action, keys.as_deref())
 }
 
 fn send(data: &tauri::State<AppData>, cmd: EngineCommand) -> Result<(), String> {
-    data.cmd_tx.send(cmd).map_err(|_| "engine unavailable".to_string())
+    data.cmd_tx
+        .send(cmd)
+        .map_err(|_| "engine unavailable".to_string())
 }
 
 #[tauri::command]
@@ -213,7 +242,13 @@ fn get_state(data: tauri::State<AppData>) -> Result<AppState, String> {
 
 #[tauri::command]
 fn set_gain(data: tauri::State<AppData>, target: Target, db: f64) -> Result<(), String> {
-    send(&data, EngineCommand::SetGain { target, db: db as f32 })
+    send(
+        &data,
+        EngineCommand::SetGain {
+            target,
+            db: db as f32,
+        },
+    )
 }
 
 #[tauri::command]
@@ -223,37 +258,99 @@ fn set_mute(data: tauri::State<AppData>, target: Target, mute: bool) -> Result<(
 
 #[tauri::command]
 fn set_solo(data: tauri::State<AppData>, strip_id: StripId, solo: bool) -> Result<(), String> {
-    send(&data, EngineCommand::SetSolo { strip: strip_id, solo })
+    send(
+        &data,
+        EngineCommand::SetSolo {
+            strip: strip_id,
+            solo,
+        },
+    )
 }
 
 #[tauri::command]
-fn set_route(data: tauri::State<AppData>, strip_id: StripId, bus: BusId, on: bool) -> Result<(), String> {
-    send(&data, EngineCommand::SetRoute { strip: strip_id, bus, on })
+fn set_route(
+    data: tauri::State<AppData>,
+    strip_id: StripId,
+    bus: BusId,
+    on: bool,
+) -> Result<(), String> {
+    send(
+        &data,
+        EngineCommand::SetRoute {
+            strip: strip_id,
+            bus,
+            on,
+        },
+    )
 }
 
 #[tauri::command]
-fn set_gate_params(data: tauri::State<AppData>, strip_id: StripId, params: GateParams) -> Result<(), String> {
-    send(&data, EngineCommand::SetGateParams { strip: strip_id, params })
+fn set_gate_params(
+    data: tauri::State<AppData>,
+    strip_id: StripId,
+    params: GateParams,
+) -> Result<(), String> {
+    send(
+        &data,
+        EngineCommand::SetGateParams {
+            strip: strip_id,
+            params,
+        },
+    )
 }
 
 #[tauri::command]
-fn set_comp_params(data: tauri::State<AppData>, strip_id: StripId, params: CompParams) -> Result<(), String> {
-    send(&data, EngineCommand::SetCompParams { strip: strip_id, params })
+fn set_comp_params(
+    data: tauri::State<AppData>,
+    strip_id: StripId,
+    params: CompParams,
+) -> Result<(), String> {
+    send(
+        &data,
+        EngineCommand::SetCompParams {
+            strip: strip_id,
+            params,
+        },
+    )
 }
 
 #[tauri::command]
-fn set_eq_params(data: tauri::State<AppData>, strip_id: StripId, params: EqParams) -> Result<(), String> {
-    send(&data, EngineCommand::SetEqParams { strip: strip_id, params })
+fn set_eq_params(
+    data: tauri::State<AppData>,
+    strip_id: StripId,
+    params: EqParams,
+) -> Result<(), String> {
+    send(
+        &data,
+        EngineCommand::SetEqParams {
+            strip: strip_id,
+            params,
+        },
+    )
 }
 
 #[tauri::command]
-fn set_limiter_params(data: tauri::State<AppData>, bus: BusId, params: LimiterParams) -> Result<(), String> {
+fn set_limiter_params(
+    data: tauri::State<AppData>,
+    bus: BusId,
+    params: LimiterParams,
+) -> Result<(), String> {
     send(&data, EngineCommand::SetLimiterParams { bus, params })
 }
 
 #[tauri::command]
-fn set_strip_device(data: tauri::State<AppData>, strip_id: StripId, hw_key: String) -> Result<(), String> {
-    send(&data, EngineCommand::SetStripDevice { strip: strip_id, hw_key })
+fn set_strip_device(
+    data: tauri::State<AppData>,
+    strip_id: StripId,
+    hw_key: String,
+) -> Result<(), String> {
+    send(
+        &data,
+        EngineCommand::SetStripDevice {
+            strip: strip_id,
+            hw_key,
+        },
+    )
 }
 
 #[tauri::command]
@@ -291,7 +388,10 @@ async fn check_update(channel: updater::Channel) -> Result<updater::UpdateInfo, 
 /// Version and commit of this build, e.g. ("0.4.1.r312", "4cc88db…").
 #[tauri::command]
 fn get_build_info() -> (String, String) {
-    (updater::BUILD_VERSION.to_string(), updater::BUILD_SHA.to_string())
+    (
+        updater::BUILD_VERSION.to_string(),
+        updater::BUILD_SHA.to_string(),
+    )
 }
 
 /// Open a page of this project on GitHub in the desktop's browser.
@@ -300,7 +400,11 @@ fn open_release_page(url: String) -> Result<(), String> {
     if !url.starts_with(&format!("https://github.com/{}/", updater::REPO)) {
         return Err("not a page of this project".into());
     }
-    std::process::Command::new("xdg-open").arg(url).spawn().map(|_| ()).map_err(|e| e.to_string())
+    std::process::Command::new("xdg-open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -311,7 +415,11 @@ fn get_update_channel() -> updater::Channel {
 /// Download + install `asset`, then restart into the new version. Progress
 /// goes out as `update_progress` events.
 #[tauri::command]
-async fn install_update(app: tauri::AppHandle, platform: updater::Platform, asset: updater::Asset) -> Result<(), String> {
+async fn install_update(
+    app: tauri::AppHandle,
+    platform: updater::Platform,
+    asset: updater::Asset,
+) -> Result<(), String> {
     let progress_app = app.clone();
     updater::install(platform, &asset, move |text| {
         let _ = progress_app.emit("update_progress", text);
@@ -328,7 +436,10 @@ async fn install_update(app: tauri::AppHandle, platform: updater::Platform, asse
 fn restart_into(app: &tauri::AppHandle) {
     let exe = updater::exe_after_update();
     let pid = std::process::id().to_string();
-    match std::process::Command::new(&exe).args(["--replace", &pid]).spawn() {
+    match std::process::Command::new(&exe)
+        .args(["--replace", &pid])
+        .spawn()
+    {
         Ok(_) => app.exit(0),
         Err(e) => tracing::error!("could not restart {}: {e}", exe.display()),
     }
@@ -475,7 +586,14 @@ impl Ctl {
                             std::thread::sleep(Duration::from_millis(200));
                             h.exit(0);
                         });
-                        format!("ok: {card} {}; restarting PipeWire and linuxmeeter", if lead { "sets the clock" } else { "follows again" })
+                        format!(
+                            "ok: {card} {}; restarting PipeWire and linuxmeeter",
+                            if lead {
+                                "sets the clock"
+                            } else {
+                                "follows again"
+                            }
+                        )
                     }
                     Err(e) => format!("error: {e}"),
                 }
@@ -489,7 +607,10 @@ impl Ctl {
             }
             Ok(control::Action::Import(path)) => {
                 let data = self.handle.state::<AppData>();
-                match std::fs::read_to_string(&path).map_err(|e| format!("could not read {path}: {e}")).and_then(|t| import_text(&self.handle, &data, &t)) {
+                match std::fs::read_to_string(&path)
+                    .map_err(|e| format!("could not read {path}: {e}"))
+                    .and_then(|t| import_text(&self.handle, &data, &t))
+                {
                     Ok(names) => format!("ok: restored {}", names.join(", ")),
                     Err(e) => format!("error: {e}"),
                 }
@@ -511,9 +632,17 @@ fn mics_note(state: &AppState) -> notify::Note {
     let muted = control::mics_muted(state);
     notify::Note {
         key: "mics".into(),
-        summary: if muted { "Microphones muted".into() } else { "Microphones live".into() },
+        summary: if muted {
+            "Microphones muted".into()
+        } else {
+            "Microphones live".into()
+        },
         body: "linuxmeeter".into(),
-        icon: if muted { "microphone-sensitivity-muted" } else { "audio-input-microphone" },
+        icon: if muted {
+            "microphone-sensitivity-muted"
+        } else {
+            "audio-input-microphone"
+        },
         value: None,
         timeout_ms: 2000,
     }
@@ -543,18 +672,47 @@ impl TrayModel {
     }
 }
 
-fn tray_menu<R: tauri::Runtime, M: Manager<R>>(app: &M, m: &TrayModel) -> tauri::Result<tauri::menu::Menu<R>> {
+fn tray_menu<R: tauri::Runtime, M: Manager<R>>(
+    app: &M,
+    m: &TrayModel,
+) -> tauri::Result<tauri::menu::Menu<R>> {
     use tauri::menu::{CheckMenuItem, MenuItem, PredefinedMenuItem};
     let menu = tauri::menu::Menu::new(app)?;
-    menu.append(&CheckMenuItem::with_id(app, "mics", "Mute all microphones", m.has_mics, m.mics_muted, None::<&str>)?)?;
+    menu.append(&CheckMenuItem::with_id(
+        app,
+        "mics",
+        "Mute all microphones",
+        m.has_mics,
+        m.mics_muted,
+        None::<&str>,
+    )?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItem::with_id(app, "profiles-label", "Profile", false, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        "profiles-label",
+        "Profile",
+        false,
+        None::<&str>,
+    )?)?;
     for name in &m.profiles {
         let id = format!("{TRAY_PROFILE}{name}");
-        menu.append(&CheckMenuItem::with_id(app, id, format!("  {name}"), true, *name == m.profile, None::<&str>)?)?;
+        menu.append(&CheckMenuItem::with_id(
+            app,
+            id,
+            format!("  {name}"),
+            true,
+            *name == m.profile,
+            None::<&str>,
+        )?)?;
     }
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItem::with_id(app, "show", "Show mixer", true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        "show",
+        "Show mixer",
+        true,
+        None::<&str>,
+    )?)?;
     menu.append(&MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?)?;
     Ok(menu)
 }
@@ -562,11 +720,17 @@ fn tray_menu<R: tauri::Runtime, M: Manager<R>>(app: &M, m: &TrayModel) -> tauri:
 fn refresh_tray(handle: &tauri::AppHandle, m: TrayModel) {
     let h = handle.clone();
     let _ = handle.run_on_main_thread(move || {
-        let Some(tray) = h.tray_by_id("main") else { return };
+        let Some(tray) = h.tray_by_id("main") else {
+            return;
+        };
         match tray_menu(&h, &m) {
             Ok(menu) => {
                 let _ = tray.set_menu(Some(menu));
-                let tip = if m.mics_muted { "linuxmeeter — microphones muted" } else { "linuxmeeter" };
+                let tip = if m.mics_muted {
+                    "linuxmeeter — microphones muted"
+                } else {
+                    "linuxmeeter"
+                };
                 let _ = tray.set_tooltip(Some(tip));
             }
             Err(e) => tracing::warn!("tray menu: {e}"),
@@ -615,7 +779,8 @@ fn autostart_path() -> std::path::PathBuf {
     std::env::var_os("XDG_CONFIG_HOME")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {
-            std::path::PathBuf::from(std::env::var_os("HOME").expect("HOME not set")).join(".config")
+            std::path::PathBuf::from(std::env::var_os("HOME").expect("HOME not set"))
+                .join(".config")
         })
         .join("autostart/linuxmeeter.desktop")
 }
